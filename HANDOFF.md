@@ -41,7 +41,8 @@ Jangan ubah contract API, DTO, JSON camelCase, tenant filter, ataupun arsitektur
 
 Tidak ada modul yang sedang setengah jalan.
 
-== 4. GOTCHAS ==
+== 4. GOTCHAS
+- Known issue: GenerateNoTrx mengandalkan unique index (TenantId, NoTrx). Belum ada retry jika terjadi race condition saat checkout bersamaan. ==
 - IgnoreQueryFilters() HANYA dipakai AuthService.
 - Product service pakai alias ProductEntity karena bentrok namespace.
 - Semua read pakai AsNoTracking + projection DTO.
