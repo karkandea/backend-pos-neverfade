@@ -48,6 +48,7 @@ Tidak ada modul yang sedang setengah jalan.
 - Global Query Filter adalah fondasi isolasi tenant.
 - InitialCreate sudah mencakup seluruh entity, jangan bikin migration baru kecuali schema berubah.
 - tanggal API = CreatedAt (projection, no migration). Berlaku juga untuk transaction.tanggal. KECUALI absensi.tanggal (tanggal hari kerja, beda).
+- Transaction menolak transaksi jika stok tidak mencukupi (throw error), bukan clamp stok ke 0. Ini disengaja sebagai business rule POS.
 
 == 5. VERIFY ==
 - file smoke test: test.http
