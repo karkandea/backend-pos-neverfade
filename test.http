@@ -87,3 +87,32 @@ Content-Type: application/json
 
 DELETE {{host}}/api/products/{{productId}}
 Authorization: Bearer {{token}}
+
+
+###
+# GET SETTINGS
+
+GET {{host}}/api/settings
+Authorization: Bearer {{token}}
+
+###
+# UPDATE SETTINGS
+
+PUT {{host}}/api/settings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "namaToko":"WARUNG LUMPIA BEEF",
+  "alamat":"Jl. Kuliner No. 1, Kota Anda",
+  "telepon":"081234567890",
+  "email":"info@lumpiabeef.id",
+  "website":"",
+  "headerStruk":"Terima kasih telah berkunjung!",
+  "footerStruk":"Barang yang sudah dibeli tidak dapat dikembalikan.",
+  "showTax":false,
+  "showPoint":true,
+  "defaultTax":0,
+  "minStok":5,
+  "poinRate":1
+}
