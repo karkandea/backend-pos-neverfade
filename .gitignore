@@ -6,6 +6,11 @@
 # dotenv files
 .env
 
+CONTRACT.md
+HANDOFF.md
+!CONTRACT.md
+!HANDOFF.md
+
 # User-specific files
 *.rsuser
 *.suo
@@ -480,3 +485,5 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+
