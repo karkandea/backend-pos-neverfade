@@ -1,0 +1,89 @@
+@host=http://localhost:5012
+
+###
+# LOGIN (200)
+
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username":"owner",
+  "password":"owner123"
+}
+
+> {%
+client.global.set("token", response.body.token);
+%}
+
+###
+# ME (200)
+
+GET {{host}}/api/auth/me
+Authorization: Bearer {{token}}
+
+###
+# NO TOKEN (401)
+
+GET {{host}}/api/auth/me
+
+###
+# GET PRODUCTS
+
+GET {{host}}/api/products
+Authorization: Bearer {{token}}
+
+###
+# CREATE PRODUCT
+
+POST {{host}}/api/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "kode":"TEST001",
+  "barcode":"899999",
+  "nama":"Produk Test",
+  "kategori":"Testing",
+  "hargaModal":1000,
+  "hargaJual":2000,
+  "stok":10,
+  "supplier":"QA",
+  "satuan":"pcs",
+  "deskripsi":"Smoke Test"
+}
+
+> {%
+client.global.set("productId", response.body.id);
+%}
+
+###
+# GET PRODUCT BY ID
+
+GET {{host}}/api/products/{{productId}}
+Authorization: Bearer {{token}}
+
+###
+# UPDATE PRODUCT
+
+PUT {{host}}/api/products/{{productId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "kode":"TEST001",
+  "barcode":"899999",
+  "nama":"Produk Test Updated",
+  "kategori":"Testing",
+  "hargaModal":1500,
+  "hargaJual":2500,
+  "stok":20,
+  "supplier":"QA",
+  "satuan":"pcs",
+  "deskripsi":"Smoke Test Updated"
+}
+
+###
+# DELETE PRODUCT
+
+DELETE {{host}}/api/products/{{productId}}
+Authorization: Bearer {{token}}
