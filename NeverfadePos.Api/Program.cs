@@ -9,6 +9,7 @@ using NeverfadePos.Api.Services.Product;
 using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Services.Customer;
 using NeverfadePos.Api.Services.Karyawan;
+using NeverfadePos.Api.Services.StockHistory;
 using NeverfadePos.Api.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -39,6 +40,7 @@ builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IKaryawanService, KaryawanService>();
+builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
