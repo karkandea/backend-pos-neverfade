@@ -5,6 +5,8 @@ using Microsoft.IdentityModel.Tokens;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.Services.Auth;
+using NeverfadePos.Api.Services.Product;
+using NeverfadePos.Api.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +32,7 @@ builder.Services.AddScoped<CurrentUser>();
 
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IProductService, ProductService>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
@@ -67,6 +70,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseMiddleware<ExceptionMiddleware>();
 
 app.UseCors("Default");
 
