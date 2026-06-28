@@ -6,6 +6,7 @@ using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.Services.Auth;
 using NeverfadePos.Api.Services.Product;
+using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -33,6 +34,7 @@ builder.Services.AddScoped<CurrentUser>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<ISettingsService, SettingsService>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
