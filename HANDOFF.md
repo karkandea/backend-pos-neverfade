@@ -1,6 +1,6 @@
 # HANDOFF — neverfade-pos-backend
-keluar v2 → masuk v3   |   2026-06-28
-commit: ad58264 (main)  |  build: ijo  |  migration: ok  |  seeder: ok
+keluar v3 → masuk v4   |   2026-06-28
+commit: f38c769 (main)  |  build: ijo  |  migration: ok  |  seeder: ok
 
 == 0. BOOT — lakuin SEBELUM percaya apapun di doc ini ==
 doc ini PETA, bukan kebenaran. kebenaran = code + git + build.
@@ -20,22 +20,24 @@ Kalau ada step yang merah → STOP, jangan numpuk fitur baru.
 - [x] Multi-tenant foundation — CurrentUser + Global Query Filter.
 - [x] Authentication — login + me.
 - [x] Product CRUD — full CRUD + DTO projection.
+- [x] Validation DTO — DataAnnotations.
+- [x] Settings API — GET/PUT + owner/admin authorization.
+- [x] Customer CRUD — full CRUD.
+- [x] Karyawan CRUD — full CRUD + owner/admin authorization.
+- [x] Stock History — masuk, keluar, penyesuaian.
 - [x] Seeder — tenant demo, users, settings, products, customers, karyawan.
 - [x] InitialCreate migration — seluruh entity sudah dibuat.
 
 == 2. CONTRACT — HARAM diubah ==
 Sumber kebenaran = CONTRACT.md.
+
 Jangan ubah contract API, DTO, JSON camelCase, tenant filter, ataupun arsitektur tanpa approval overseer.
 
 == 3. NEXT — urut prioritas ==
-1. Task Zero selesai (smoke test + dokumentasi).
-2. Validation (DataAnnotations semua DTO).
-3. Swagger JWT Authorize.
-4. Settings API.
-5. Customer CRUD.
-6. Karyawan CRUD.
-7. Stock History.
-8. STOP → REPORT ke overseer sebelum Transaction.
+1. Transaction (STOP & REPORT T1 ke overseer setelah selesai)
+2. Users CRUD
+3. Absensi
+4. Laporan
 
 Tidak ada modul yang sedang setengah jalan.
 
@@ -45,6 +47,7 @@ Tidak ada modul yang sedang setengah jalan.
 - Semua read pakai AsNoTracking + projection DTO.
 - Global Query Filter adalah fondasi isolasi tenant.
 - InitialCreate sudah mencakup seluruh entity, jangan bikin migration baru kecuali schema berubah.
+- tanggal API = CreatedAt (projection, no migration). Berlaku juga untuk transaction.tanggal. KECUALI absensi.tanggal (tanggal hari kerja, beda).
 
 == 5. VERIFY ==
 - file smoke test: test.http
@@ -53,4 +56,8 @@ Tidak ada modul yang sedang setengah jalan.
   - me 200
   - no-token 401
   - product CRUD
+  - settings GET/PUT
+  - customer CRUD
+  - karyawan CRUD
+  - stock history (masuk, keluar, penyesuaian)
   - isolasi tenant
