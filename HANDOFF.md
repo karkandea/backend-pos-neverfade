@@ -1,6 +1,6 @@
 # HANDOFF — neverfade-pos-backend
 keluar v3 → masuk v4   |   2026-06-28
-commit: f38c769 (main)  |  build: ijo  |  migration: ok  |  seeder: ok
+commit: 26d2fc9 (main)  |  build: ijo  |  migration: ok  |  seeder: ok
 
 == 0. BOOT — lakuin SEBELUM percaya apapun di doc ini ==
 doc ini PETA, bukan kebenaran. kebenaran = code + git + build.
