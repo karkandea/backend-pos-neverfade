@@ -83,3 +83,23 @@ Tidak ada modul yang sedang setengah jalan.
 
 ### Status
 - Build: ✅ Hijau
+
+## Scalar API Docs (Pending)
+
+Status:
+- Package Scalar.AspNetCore 2.16.6 sudah terpasang.
+- Belum ada BearerSecuritySchemeTransformer.
+- Program.cs belum dipatch untuk MapScalarApiReference() maupun AddOpenApi(document transformer).
+
+Known Trap:
+- Project resolve ke Microsoft.OpenApi 2.x.
+- API Microsoft.OpenApi 2.x berbeda dari banyak contoh lama yang memakai Microsoft.OpenApi.Models (1.x).
+- Jangan copy-paste contoh Swashbuckle/OpenApi.Models.
+- Verifikasi API transformer Microsoft.OpenApi yang benar sebelum implementasi Bearer security scheme.
+
+Next:
+- Implement BearerSecuritySchemeTransformer.
+- Register dengan AddOpenApi(options => options.AddDocumentTransformer<...>()).
+- Tambahkan app.MapScalarApiReference() setelah app.MapOpenApi().
+- Build.
+- Test manual /scalar + Authorize + JWT.
