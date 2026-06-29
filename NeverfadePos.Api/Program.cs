@@ -1,3 +1,4 @@
+using Scalar.AspNetCore;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -19,7 +20,10 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer<NeverfadePos.Api.Common.BearerSecuritySchemeTransformer>();
+});
 
 builder.Services.AddEndpointsApiExplorer();
 
@@ -82,6 +86,8 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+app.MapScalarApiReference();
 
 app.UseHttpsRedirection();
 
