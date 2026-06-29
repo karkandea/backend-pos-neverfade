@@ -63,3 +63,23 @@ Tidak ada modul yang sedang setengah jalan.
   - karyawan CRUD
   - stock history (masuk, keluar, penyesuaian)
   - isolasi tenant
+
+## v4 - Absensi & Laporan
+
+### DONE
+- Modul Absensi
+  - POST /api/absensi/checkin
+  - POST /api/absensi/checkout
+  - GET /api/absensi
+- Modul Laporan
+  - GET /api/laporan/summary
+  - GET /api/laporan/chart
+  - GET /api/laporan/top-products
+
+### Timezone
+- Business date menggunakan WIB (UTC+7).
+- Data CreatedAt tetap disimpan UTC.
+- Penentuan "hari ini", filter periode, dan chart dikonversi ke WIB sebelum dihitung agar konsisten.
+
+### Status
+- Build: ✅ Hijau
