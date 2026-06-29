@@ -10,6 +10,8 @@ using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Services.Customer;
 using NeverfadePos.Api.Services.Karyawan;
 using NeverfadePos.Api.Services.StockHistory;
+using NeverfadePos.Api.Services.Absensi;
+using NeverfadePos.Api.Services.Laporan;
 using NeverfadePos.Api.Services.Transaction;
 using NeverfadePos.Api.Middleware;
 
@@ -42,6 +44,8 @@ builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IKaryawanService, KaryawanService>();
 builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
+builder.Services.AddScoped<IAbsensiService, AbsensiService>();
+builder.Services.AddScoped<ILaporanService, LaporanService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
