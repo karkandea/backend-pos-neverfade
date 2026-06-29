@@ -71,13 +71,16 @@ public sealed class AbsensiService(
                 x => x.KaryawanId == request.KaryawanId &&
                      x.Tanggal == today,
                 cancellationToken)
-            ?? throw new KeyNotFoundException("Absensi hari ini tidak ditemukan.");
+            ?? throw new InvalidOperationException("Belum check-in hari ini.");
 
-        if (absensi.CheckOut is null)
-        {
-            absensi.CheckOut = nowTime;
-            await db.SaveChangesAsync(cancellationToken);
-        }
+        if (absensi.CheckIn is null)
+            throw new InvalidOperationException("Belum check-in hari ini.");
+
+        if (absensi.CheckOut is not null)
+            throw new InvalidOperationException("Sudah check-out hari ini.");
+
+        absensi.CheckOut = nowTime;
+        await db.SaveChangesAsync(cancellationToken);
 
         return new AbsensiResultDto
         {
