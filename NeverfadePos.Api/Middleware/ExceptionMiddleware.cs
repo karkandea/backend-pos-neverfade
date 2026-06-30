@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NeverfadePos.Api.Common;
 
 namespace NeverfadePos.Api.Middleware;
 
@@ -26,6 +27,7 @@ public sealed class ExceptionMiddleware(RequestDelegate next)
         {
             UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
             KeyNotFoundException => StatusCodes.Status404NotFound,
+            ConflictException => StatusCodes.Status409Conflict,
             InvalidOperationException => StatusCodes.Status400BadRequest,
             ArgumentException => StatusCodes.Status400BadRequest,
             _ => StatusCodes.Status500InternalServerError
@@ -33,7 +35,7 @@ public sealed class ExceptionMiddleware(RequestDelegate next)
 
         var response = new
         {
-            message = context.Response.StatusCode == 500
+            message = context.Response.StatusCode == StatusCodes.Status500InternalServerError
                 ? "Internal server error."
                 : exception.Message
         };

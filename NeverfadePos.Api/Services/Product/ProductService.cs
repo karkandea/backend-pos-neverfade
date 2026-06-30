@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
+using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Product;
 using NeverfadePos.Api.Entities;
+using Npgsql;
 using ProductEntity = NeverfadePos.Api.Entities.Product;
 
 namespace NeverfadePos.Api.Services.Product;
@@ -125,7 +127,17 @@ public sealed class ProductService(
 
         db.Products.Remove(entity);
 
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+            when (ex.InnerException is PostgresException pg &&
+                  pg.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+        {
+            throw new ConflictException(
+                "Produk tidak dapat dihapus karena memiliki riwayat stok atau transaksi.");
+        }
     }
 
     private static System.Linq.Expressions.Expression<Func<ProductEntity, ProductDto>> MapToDto()
