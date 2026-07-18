@@ -3,7 +3,9 @@ using NeverfadePos.Api.Common;
 
 namespace NeverfadePos.Api.Middleware;
 
-public sealed class ExceptionMiddleware(RequestDelegate next)
+public sealed class ExceptionMiddleware(
+    RequestDelegate next,
+    ILogger<ExceptionMiddleware> logger)
 {
     public async Task InvokeAsync(HttpContext context)
     {
@@ -11,33 +13,69 @@ public sealed class ExceptionMiddleware(RequestDelegate next)
         {
             await next(context);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            await HandleExceptionAsync(context, ex);
+            await HandleExceptionAsync(
+                context,
+                exception,
+                logger);
         }
     }
 
     private static async Task HandleExceptionAsync(
         HttpContext context,
-        Exception exception)
+        Exception exception,
+        ILogger<ExceptionMiddleware> logger)
     {
         context.Response.ContentType = "application/json";
 
         context.Response.StatusCode = exception switch
         {
-            UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
-            KeyNotFoundException => StatusCodes.Status404NotFound,
-            ConflictException => StatusCodes.Status409Conflict,
-            InvalidOperationException => StatusCodes.Status400BadRequest,
-            ArgumentException => StatusCodes.Status400BadRequest,
-            _ => StatusCodes.Status500InternalServerError
+            UnauthorizedAccessException =>
+                StatusCodes.Status401Unauthorized,
+
+            KeyNotFoundException =>
+                StatusCodes.Status404NotFound,
+
+            ConflictException =>
+                StatusCodes.Status409Conflict,
+
+            InvalidOperationException =>
+                StatusCodes.Status400BadRequest,
+
+            ArgumentException =>
+                StatusCodes.Status400BadRequest,
+
+            _ =>
+                StatusCodes.Status500InternalServerError
         };
+
+        if (context.Response.StatusCode ==
+            StatusCodes.Status500InternalServerError)
+        {
+            logger.LogError(
+                exception,
+                "Unhandled exception on {Method} {Path}",
+                context.Request.Method,
+                context.Request.Path);
+        }
+        else
+        {
+            logger.LogWarning(
+                exception,
+                "Request failed with status {StatusCode} on {Method} {Path}",
+                context.Response.StatusCode,
+                context.Request.Method,
+                context.Request.Path);
+        }
 
         var response = new
         {
-            message = context.Response.StatusCode == StatusCodes.Status500InternalServerError
-                ? "Internal server error."
-                : exception.Message
+            message =
+                context.Response.StatusCode ==
+                StatusCodes.Status500InternalServerError
+                    ? "Internal server error."
+                    : exception.Message
         };
 
         await context.Response.WriteAsync(
