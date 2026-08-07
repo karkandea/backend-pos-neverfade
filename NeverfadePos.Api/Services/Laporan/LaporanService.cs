@@ -15,32 +15,60 @@ public sealed class LaporanService(AppDbContext db)
 
     private static readonly string[] Hari =
     {
-        "Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"
+        "Min",
+        "Sen",
+        "Sel",
+        "Rab",
+        "Kam",
+        "Jum",
+        "Sab"
     };
 
     public async Task<LaporanSummaryDto> GetSummaryAsync(
         string period,
         CancellationToken cancellationToken = default)
     {
-        var startUtc = GetStartUtc(period);
+        var startUtc =
+            GetStartUtc(period);
 
         var query = db.Transactions
             .AsNoTracking()
-            .Where(x => x.CreatedAt >= startUtc);
+            .Where(
+                x => x.CreatedAt >= startUtc);
 
-        var omzet = await query.SumAsync(x => (decimal?)x.Total, cancellationToken) ?? 0m;
-        var transaksi = await query.CountAsync(cancellationToken);
-        var pelanggan = await query
-            .Where(x => x.CustomerId != null)
-            .Select(x => x.CustomerId)
-            .Distinct()
-            .CountAsync(cancellationToken);
+        var omzet =
+            await query
+                .SumAsync(
+                    x => (decimal?)x.Total,
+                    cancellationToken)
+            ?? 0m;
+
+        var transaksi =
+            await query
+                .CountAsync(
+                    cancellationToken);
+
+        var pelanggan =
+            await query
+                .Where(
+                    x => x.CustomerId != null)
+                .Select(
+                    x => x.CustomerId)
+                .Distinct()
+                .CountAsync(
+                    cancellationToken);
 
         return new LaporanSummaryDto
         {
             Omzet = omzet,
+
             Transaksi = transaksi,
-            Avg = transaksi == 0 ? 0 : omzet / transaksi,
+
+            Avg =
+                transaksi == 0
+                    ? 0
+                    : omzet / transaksi,
+
             Pelanggan = pelanggan
         };
     }
@@ -48,83 +76,183 @@ public sealed class LaporanService(AppDbContext db)
     public async Task<List<LaporanChartDto>> GetChartAsync(
         CancellationToken cancellationToken = default)
     {
-        var todayWib = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Wib).Date;
+        var nowWib =
+            TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.UtcNow,
+                Wib);
 
-        var startWib = todayWib.AddDays(-6);
+        var todayWib =
+            nowWib.Date;
 
-        var startUtc = TimeZoneInfo.ConvertTimeToUtc(startWib, Wib);
+        var startWib =
+            todayWib.AddDays(-6);
 
-        var raw = await db.Transactions
-            .AsNoTracking()
-            .Where(x => x.CreatedAt >= startUtc)
-            .GroupBy(x => x.CreatedAt.Date)
-            .Select(x => new
-            {
-                Date = x.Key,
-                Total = x.Sum(y => y.Total)
-            })
-            .ToListAsync(cancellationToken);
+        var endWib =
+            todayWib.AddDays(1);
 
-        var result = new List<LaporanChartDto>();
+        var startUtc =
+            TimeZoneInfo.ConvertTimeToUtc(
+                startWib,
+                Wib);
+
+        var endUtc =
+            TimeZoneInfo.ConvertTimeToUtc(
+                endWib,
+                Wib);
+
+        var raw =
+            await db.Transactions
+                .AsNoTracking()
+                .Where(
+                    x =>
+                        x.CreatedAt >= startUtc &&
+                        x.CreatedAt < endUtc)
+                .Select(
+                    x => new
+                    {
+                        x.CreatedAt,
+                        x.Total
+                    })
+                .ToListAsync(
+                    cancellationToken);
+
+        var totalsByWibDate =
+            raw
+                .GroupBy(
+                    x =>
+                        ToWibDate(
+                            x.CreatedAt))
+                .ToDictionary(
+                    x => x.Key,
+                    x => x.Sum(
+                        y => y.Total));
+
+        var result =
+            new List<LaporanChartDto>(
+                capacity: 7);
 
         for (var i = 0; i < 7; i++)
         {
-            var day = startWib.AddDays(i);
+            var day =
+                startWib.AddDays(i);
 
-            var utcDate = TimeZoneInfo
-                .ConvertTimeToUtc(day, Wib)
-                .Date;
+            var date =
+                DateOnly.FromDateTime(day);
 
-            var total = raw
-                .Where(x => x.Date == utcDate)
-                .Select(x => x.Total)
-                .FirstOrDefault();
+            totalsByWibDate.TryGetValue(
+                date,
+                out var total);
 
-            result.Add(new LaporanChartDto
-            {
-                Date = day.ToString("yyyy-MM-dd"),
-                Label = Hari[(int)day.DayOfWeek],
-                Total = total
-            });
+            result.Add(
+                new LaporanChartDto
+                {
+                    Date =
+                        day.ToString(
+                            "yyyy-MM-dd"),
+
+                    Label =
+                        Hari[
+                            (int)day.DayOfWeek],
+
+                    Total =
+                        total
+                });
         }
 
         return result;
     }
 
-    public async Task<List<TopProductDto>> GetTopProductsAsync(
-        string period,
-        CancellationToken cancellationToken = default)
+    public async Task<List<TopProductDto>>
+        GetTopProductsAsync(
+            string period,
+            CancellationToken cancellationToken = default)
     {
-        var startUtc = GetStartUtc(period);
+        var startUtc =
+            GetStartUtc(period);
 
         return await db.TransactionItems
             .AsNoTracking()
-            .Where(x => x.Transaction!.CreatedAt >= startUtc)
-            .GroupBy(x => x.Nama)
-            .Select(x => new TopProductDto
-            {
-                Nama = x.Key,
-                Qty = x.Sum(y => y.Qty),
-                Revenue = x.Sum(y => y.Subtotal)
-            })
-            .OrderByDescending(x => x.Qty)
+            .Where(
+                x =>
+                    x.Transaction!.CreatedAt >=
+                    startUtc)
+            .GroupBy(
+                x => x.Nama)
+            .Select(
+                x => new TopProductDto
+                {
+                    Nama =
+                        x.Key,
+
+                    Qty =
+                        x.Sum(
+                            y => y.Qty),
+
+                    Revenue =
+                        x.Sum(
+                            y => y.Subtotal)
+                })
+            .OrderByDescending(
+                x => x.Qty)
             .Take(10)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(
+                cancellationToken);
     }
 
-    private static DateTime GetStartUtc(string period)
+    private static DateOnly ToWibDate(
+        DateTime utc)
     {
-        var now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Wib);
+        var normalizedUtc =
+            utc.Kind == DateTimeKind.Utc
+                ? utc
+                : DateTime.SpecifyKind(
+                    utc,
+                    DateTimeKind.Utc);
 
-        DateTime start = period.ToLowerInvariant() switch
-        {
-            "harian" => now.Date,
-            "mingguan" => now.Date.AddDays(-6),
-            "bulanan" => new DateTime(now.Year, now.Month, 1),
-            "tahunan" => new DateTime(now.Year, 1, 1),
-            _ => now.Date
-        };
+        var wib =
+            TimeZoneInfo.ConvertTimeFromUtc(
+                normalizedUtc,
+                Wib);
 
-        return TimeZoneInfo.ConvertTimeToUtc(start, Wib);
+        return DateOnly.FromDateTime(
+            wib);
+    }
+
+    private static DateTime GetStartUtc(
+        string period)
+    {
+        var now =
+            TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.UtcNow,
+                Wib);
+
+        DateTime start =
+            period.ToLowerInvariant() switch
+            {
+                "harian" =>
+                    now.Date,
+
+                "mingguan" =>
+                    now.Date.AddDays(-6),
+
+                "bulanan" =>
+                    new DateTime(
+                        now.Year,
+                        now.Month,
+                        1),
+
+                "tahunan" =>
+                    new DateTime(
+                        now.Year,
+                        1,
+                        1),
+
+                _ =>
+                    now.Date
+            };
+
+        return TimeZoneInfo.ConvertTimeToUtc(
+            start,
+            Wib);
     }
 }
