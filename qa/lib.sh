@@ -4,6 +4,10 @@ QA_BACKEND_ROOT="${QA_BACKEND_ROOT:-$HOME/neverfade-pos-backend}"
 QA_PROJECT_ROOT="${QA_PROJECT_ROOT:-$QA_BACKEND_ROOT/NeverfadePos.Api}"
 QA_API_URL="${QA_API_URL:-http://localhost:5012}"
 
+# Dummy QA credentials — LOCAL / TEST ONLY.
+QA_OWNER_USERNAME="${QA_OWNER_USERNAME:-owner}"
+QA_OWNER_PASSWORD="${QA_OWNER_PASSWORD:-owner123}"
+
 QA_RUN_ID="${QA_RUN_ID:-QA_$(date +%Y%m%d_%H%M%S)}"
 QA_LOG_FILE="${QA_LOG_FILE:-/tmp/neverfade-pos-qa-backend.log}"
 
@@ -151,31 +155,16 @@ qa_stop_backend() {
 }
 
 qa_login_owner() {
-  local username
-  local password
   local login_file
   local login_status
   local login_payload
 
   login_file="$1"
 
-  printf "Username owner [owner]: " > /dev/tty
-  IFS= read -r username < /dev/tty
-
-  if [ -z "$username" ]; then
-    username="owner"
-  fi
-
-  printf "Password owner: " > /dev/tty
-  stty -echo < /dev/tty
-  IFS= read -r password < /dev/tty
-  stty echo < /dev/tty
-  printf "\n" > /dev/tty
-
   login_payload="$(
     jq -n \
-      --arg username "$username" \
-      --arg password "$password" \
+      --arg username "$QA_OWNER_USERNAME" \
+      --arg password "$QA_OWNER_PASSWORD" \
       '{username:$username,password:$password}'
   )"
 
@@ -189,7 +178,6 @@ qa_login_owner() {
       "$QA_API_URL/api/auth/login"
   )"
 
-  unset password
   unset login_payload
 
   qa_expect_status \
@@ -247,5 +235,5 @@ qa_print_summary() {
 }
 
 qa_restore_terminal() {
-  stty echo < /dev/tty 2>/dev/null || true
+  true
 }

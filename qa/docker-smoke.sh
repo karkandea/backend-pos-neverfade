@@ -6,6 +6,8 @@ BACKEND="$HOME/neverfade-pos-backend"
 PROJECT="$BACKEND/NeverfadePos.Api"
 RESULT_DIR="$HOME/neverfade-pos-qa"
 
+source "$BACKEND/qa/lib.sh"
+
 IMAGE_NAME="neverfade-pos-backend:qa-smoke"
 CONTAINER_NAME="neverfade-pos-backend-qa-smoke"
 BASE_URL="http://127.0.0.1:8080"
@@ -52,7 +54,7 @@ if lsof \
   -sTCP:LISTEN \
   >/dev/null 2>&1
 then
-  echo "[FAIL] Port 8080 sedang digunakan."
+  fail "Port 8080 sedang digunakan."
   lsof -nP -iTCP:8080 -sTCP:LISTEN
   exit 1
 fi
@@ -79,8 +81,8 @@ CONNECTION_STRING="$(
     grep \
       '^ConnectionStrings:DefaultConnection = ' |
     head -1 |
-    sed \
-      's/^ConnectionStrings:DefaultConnection = //'
+    cut -d= -f2- |
+    sed 's/^ //'
 )"
 
 if [ -z "$CONNECTION_STRING" ]; then
@@ -95,7 +97,9 @@ chmod 600 "$ENV_FILE"
 {
   echo "ASPNETCORE_ENVIRONMENT=Development"
   echo "DOTNET_ENVIRONMENT=Development"
-  printf 'ConnectionStrings__DefaultConnection=%s\n' \
+
+  printf \
+    'ConnectionStrings__DefaultConnection=%s\n' \
     "$CONNECTION_STRING"
 } > "$ENV_FILE"
 
@@ -153,7 +157,7 @@ for ATTEMPT in $(seq 1 90); do
     2>/dev/null |
     grep -q '^true$'
   then
-    echo "[FAIL] Container berhenti saat startup."
+    fail "Container berhenti saat startup."
     docker logs "$CONTAINER_NAME"
     exit 1
   fi
@@ -203,20 +207,10 @@ fi
 echo
 echo "===== OWNER LOGIN ====="
 
-printf "Username owner [owner]: "
-IFS= read -r OWNER_USERNAME
-OWNER_USERNAME="${OWNER_USERNAME:-owner}"
-
-printf "Password owner: "
-stty -echo
-IFS= read -r OWNER_PASSWORD
-stty echo
-printf "\n"
-
 LOGIN_PAYLOAD="$(
   jq -n \
-    --arg username "$OWNER_USERNAME" \
-    --arg password "$OWNER_PASSWORD" \
+    --arg username "$QA_OWNER_USERNAME" \
+    --arg password "$QA_OWNER_PASSWORD" \
     '{
       username: $username,
       password: $password
@@ -235,12 +229,23 @@ LOGIN_STATUS="$(
     "$BASE_URL/api/auth/login"
 )"
 
-unset OWNER_PASSWORD
 unset LOGIN_PAYLOAD
 
 if [ "$LOGIN_STATUS" != "200" ]; then
   fail "Owner login — HTTP $LOGIN_STATUS"
+
   cat "$RESULT_DIR/docker-login.json"
+
+  echo
+  echo "===== CONTAINER LOG TAIL ====="
+
+  docker logs \
+    --tail 80 \
+    "$CONTAINER_NAME" \
+    2>&1 |
+    grep -vEi \
+      'password|token|authorization|connectionstring|jwt:key|host=.*password'
+
   exit 1
 fi
 
@@ -347,6 +352,7 @@ if grep -Eiq \
   "$RESULT_DIR/docker-container.log"
 then
   fail "Container log mengandung fatal/error entry"
+
   grep -Ein \
     'Unhandled exception|Application startup exception|fail:' \
     "$RESULT_DIR/docker-container.log" |
