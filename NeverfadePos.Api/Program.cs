@@ -148,6 +148,10 @@ builder.Services.AddScoped<
     ITransactionService,
     TransactionService>();
 
+builder.Services.AddScoped<
+    NeverfadePos.Api.Services.Users.IUserService,
+    NeverfadePos.Api.Services.Users.UserService>();
+
 builder.Services.AddDbContext<AppDbContext>(
     options =>
         options.UseNpgsql(connectionString));
