@@ -183,6 +183,7 @@ public sealed class PlatformAuthenticationTests
             TenantIssuer,
             TenantAudience,
             Guid.NewGuid(),
+            new Claim("scope", "tenant"),
             new Claim("tenant_id", Guid.NewGuid().ToString()),
             new Claim(ClaimTypes.Role, "owner"));
 

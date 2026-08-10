@@ -71,19 +71,24 @@ pass "Docker engine tersedia"
 echo
 echo "===== LOAD RUNTIME CONFIG ====="
 
-SECRET_OUTPUT="$(
-  cd "$PROJECT" &&
-  dotnet user-secrets list 2>/dev/null
-)"
+if [ -n "${QA_CONNECTION_STRING:-}" ]; then
+  CONNECTION_STRING="$QA_CONNECTION_STRING"
+  SECRET_OUTPUT=""
+else
+  SECRET_OUTPUT="$(
+    cd "$PROJECT" &&
+    dotnet user-secrets list 2>/dev/null
+  )"
 
-CONNECTION_STRING="$(
-  printf "%s\n" "$SECRET_OUTPUT" |
-    grep \
-      '^ConnectionStrings:DefaultConnection = ' |
-    head -1 |
-    cut -d= -f2- |
-    sed 's/^ //'
-)"
+  CONNECTION_STRING="$(
+    printf "%s\n" "$SECRET_OUTPUT" |
+      grep \
+        '^ConnectionStrings:DefaultConnection = ' |
+      head -1 |
+      cut -d= -f2- |
+      sed 's/^ //'
+  )"
+fi
 
 if [ -z "$CONNECTION_STRING" ]; then
   fail "ConnectionStrings:DefaultConnection tidak ditemukan"

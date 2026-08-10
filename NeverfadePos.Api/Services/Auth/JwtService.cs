@@ -31,6 +31,7 @@ public sealed class JwtService(
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new("scope", "tenant"),
             new("tenant_id", user.TenantId.ToString()),
             new("username", user.Username),
             new("nama", user.Nama),

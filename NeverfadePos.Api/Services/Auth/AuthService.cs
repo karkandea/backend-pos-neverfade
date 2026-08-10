@@ -1,6 +1,7 @@
 using BCrypt.Net;
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
+using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Auth;
 
@@ -28,6 +29,23 @@ public sealed class AuthService(
 
         if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             throw new UnauthorizedAccessException("Username atau password salah.");
+
+        var tenantStatus = await db.Tenants
+            .AsNoTracking()
+            .Where(x => x.Id == user.TenantId)
+            .Select(x => x.Status)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (tenantStatus == "suspended")
+        {
+            throw new PlatformApiException(
+                StatusCodes.Status403Forbidden,
+                "TENANT_SUSPENDED",
+                "Tenant sedang ditangguhkan.");
+        }
+
+        if (tenantStatus is null)
+            throw new UnauthorizedAccessException();
 
         var token = jwtService.GenerateToken(user);
 

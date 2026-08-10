@@ -14,6 +14,7 @@ using NeverfadePos.Api.Services.Laporan;
 using NeverfadePos.Api.Services.Product;
 using NeverfadePos.Api.Services.PlatformAuth;
 using NeverfadePos.Api.Services.PlatformBootstrap;
+using NeverfadePos.Api.Services.PlatformTenant;
 using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Services.StockHistory;
 using NeverfadePos.Api.Services.Transaction;
@@ -178,6 +179,12 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     PlatformUserBootstrapService>();
 
+builder.Services.AddScoped<TenantProvisioningService>();
+
+builder.Services.AddScoped<
+    IPlatformTenantService,
+    PlatformTenantService>();
+
 builder.Services.AddScoped<
     IProductService,
     ProductService>();
@@ -241,6 +248,29 @@ builder.Services
                         Encoding.UTF8.GetBytes(
                             jwtKey))
             };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = context =>
+            {
+                var principal = context.Principal;
+                var tenantId = principal?
+                    .FindFirst("tenant_id")?.Value;
+                var role = principal?
+                    .FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ??
+                    principal?.FindFirst("role")?.Value;
+
+                if (principal?.HasClaim("scope", "tenant") != true ||
+                    !Guid.TryParse(tenantId, out var parsedTenantId) ||
+                    parsedTenantId == Guid.Empty ||
+                    role is not ("owner" or "admin" or "kasir"))
+                {
+                    context.Fail("Invalid tenant identity.");
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     })
     .AddJwtBearer(
         PlatformAuthConstants.AuthenticationScheme,
@@ -332,6 +362,8 @@ app.UseMiddleware<ExceptionMiddleware>();
 app.UseCors("Default");
 
 app.UseAuthentication();
+
+app.UseMiddleware<TenantStatusMiddleware>();
 
 app.UseAuthorization();
 

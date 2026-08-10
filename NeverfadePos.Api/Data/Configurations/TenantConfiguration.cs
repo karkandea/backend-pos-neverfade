@@ -8,7 +8,12 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
 {
     public void Configure(EntityTypeBuilder<Tenant> builder)
     {
-        builder.ToTable("tenants");
+        builder.ToTable(
+            "tenants",
+            table =>
+                table.HasCheckConstraint(
+                    "CK_tenants_Status",
+                    "\"Status\" IN ('active', 'suspended')"));
 
         builder.HasKey(x => x.Id);
 
@@ -22,5 +27,12 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
 
         builder.HasIndex(x => x.Slug)
             .IsUnique();
+
+        builder.Property(x => x.Status)
+            .HasMaxLength(20)
+            .HasDefaultValue("active")
+            .IsRequired();
+
+        builder.HasIndex(x => x.Status);
     }
 }

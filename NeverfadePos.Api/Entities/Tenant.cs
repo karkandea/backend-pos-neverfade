@@ -8,7 +8,11 @@ public class Tenant
 
     public string Slug { get; set; } = string.Empty;
 
+    public string Status { get; set; } = "active";
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<User> Users { get; set; } = new List<User>();
 
@@ -27,4 +31,6 @@ public class Tenant
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
 
     public ICollection<TransactionItem> TransactionItems { get; set; } = new List<TransactionItem>();
+
+    public ICollection<PlatformAuditEvent> PlatformAuditEvents { get; set; } = new List<PlatformAuditEvent>();
 }
