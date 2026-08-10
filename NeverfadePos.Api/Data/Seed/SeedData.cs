@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Entities;
 
 namespace NeverfadePos.Api.Data.Seed;
@@ -17,6 +18,11 @@ public static class SeedData
             scope.ServiceProvider
                 .GetRequiredService<AppDbContext>();
 
+        var trustedTenantScope =
+            scope.ServiceProvider
+                .GetRequiredService<
+                    ITrustedTenantExecutionScope>();
+
         var logger =
             scope.ServiceProvider
                 .GetRequiredService<ILoggerFactory>()
@@ -29,7 +35,9 @@ public static class SeedData
 
         if (environment.IsDevelopment())
         {
-            await SeedDemoAsync(db);
+            await SeedDemoAsync(
+                db,
+                trustedTenantScope);
 
             logger.LogInformation(
                 "Development demo data created.");
@@ -51,7 +59,8 @@ public static class SeedData
 
         await SeedProductionBootstrapAsync(
             db,
-            configuration);
+            configuration,
+            trustedTenantScope);
 
         logger.LogInformation(
             "Production owner bootstrap completed.");
@@ -59,7 +68,8 @@ public static class SeedData
 
     private static async Task SeedProductionBootstrapAsync(
         AppDbContext db,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        ITrustedTenantExecutionScope trustedTenantScope)
     {
         var tenantName = Require(
             configuration,
@@ -106,6 +116,11 @@ public static class SeedData
 
         await db.SaveChangesAsync();
 
+        using var tenantScope =
+            trustedTenantScope.Begin(
+                tenant.Id,
+                "production-bootstrap");
+
         db.Users.Add(new User
         {
             TenantId = tenant.Id,
@@ -141,7 +156,8 @@ public static class SeedData
     }
 
     private static async Task SeedDemoAsync(
-        AppDbContext db)
+        AppDbContext db,
+        ITrustedTenantExecutionScope trustedTenantScope)
     {
         var tenant = new Tenant
         {
@@ -152,6 +168,11 @@ public static class SeedData
         db.Tenants.Add(tenant);
 
         await db.SaveChangesAsync();
+
+        using var tenantScope =
+            trustedTenantScope.Begin(
+                tenant.Id,
+                "development-demo-seed");
 
         db.Users.AddRange(
             new User

@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="NeverfadePos.Api/NeverfadePos.Api.csproj" />
+  <Project Path="NeverfadePos.Api.Tests/NeverfadePos.Api.Tests.csproj" />
 </Solution>

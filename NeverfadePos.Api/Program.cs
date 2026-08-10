@@ -108,6 +108,18 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddScoped<CurrentUser>();
 
+builder.Services.AddScoped<TenantExecutionContext>();
+
+builder.Services.AddScoped<ITenantExecutionContext>(
+    services =>
+        services.GetRequiredService<
+            TenantExecutionContext>());
+
+builder.Services.AddScoped<ITrustedTenantExecutionScope>(
+    services =>
+        services.GetRequiredService<
+            TenantExecutionContext>());
+
 builder.Services.AddScoped<
     IJwtService,
     JwtService>();

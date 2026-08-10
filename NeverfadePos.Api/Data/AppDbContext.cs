@@ -7,14 +7,14 @@ namespace NeverfadePos.Api.Data;
 
 public class AppDbContext : DbContext
 {
-    private readonly CurrentUser? _currentUser;
+    private readonly ITenantExecutionContext? _tenantExecutionContext;
 
     public AppDbContext(
         DbContextOptions<AppDbContext> options,
-        CurrentUser? currentUser = null)
+        ITenantExecutionContext? tenantExecutionContext = null)
         : base(options)
     {
-        _currentUser = currentUser;
+        _tenantExecutionContext = tenantExecutionContext;
     }
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
@@ -57,7 +57,109 @@ public class AppDbContext : DbContext
     {
         builder.Entity<TEntity>()
             .HasQueryFilter(x =>
-                !_currentUser!.TenantId.HasValue ||
-                x.TenantId == _currentUser.TenantId.Value);
+                HasTargetTenant &&
+                x.TenantId == TargetTenantId);
+    }
+
+    public override int SaveChanges()
+    {
+        ValidateTenantWrites();
+
+        return base.SaveChanges();
+    }
+
+    public override int SaveChanges(
+        bool acceptAllChangesOnSuccess)
+    {
+        ValidateTenantWrites();
+
+        return base.SaveChanges(
+            acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ValidateTenantWrites();
+
+        return base.SaveChangesAsync(
+            cancellationToken);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateTenantWrites();
+
+        return base.SaveChangesAsync(
+            acceptAllChangesOnSuccess,
+            cancellationToken);
+    }
+
+    private bool HasTargetTenant =>
+        _tenantExecutionContext?.HasTargetTenant == true;
+
+    private Guid TargetTenantId =>
+        _tenantExecutionContext?.TargetTenantId ??
+        Guid.Empty;
+
+    private void ValidateTenantWrites()
+    {
+        var entries = ChangeTracker
+            .Entries<BaseEntity>()
+            .Where(x =>
+                x.State is
+                    EntityState.Added or
+                    EntityState.Modified or
+                    EntityState.Deleted)
+            .ToList();
+
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        if (!HasTargetTenant)
+        {
+            throw new InvalidOperationException(
+                "Tenant-scoped writes require an explicit tenant execution context.");
+        }
+
+        var targetTenantId = TargetTenantId;
+
+        foreach (var entry in entries)
+        {
+            var tenantProperty = entry.Property(
+                nameof(BaseEntity.TenantId));
+
+            if (entry.State == EntityState.Added &&
+                entry.Entity.TenantId == Guid.Empty)
+            {
+                entry.Entity.TenantId = targetTenantId;
+            }
+
+            if (entry.State != EntityState.Added &&
+                tenantProperty.IsModified)
+            {
+                throw new InvalidOperationException(
+                    "TenantId cannot be changed.");
+            }
+
+            if (entry.Entity.TenantId != targetTenantId)
+            {
+                throw new InvalidOperationException(
+                    "Tenant-scoped entity does not match the active tenant execution context.");
+            }
+
+            if (entry.State != EntityState.Added &&
+                entry.OriginalValues.GetValue<Guid>(
+                    nameof(BaseEntity.TenantId)) !=
+                targetTenantId)
+            {
+                throw new InvalidOperationException(
+                    "Tenant-scoped entity does not belong to the active tenant execution context.");
+            }
+        }
     }
 }
