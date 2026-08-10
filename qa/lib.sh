@@ -11,6 +11,10 @@ QA_OWNER_PASSWORD="${QA_OWNER_PASSWORD:-owner123}"
 QA_RUN_ID="${QA_RUN_ID:-QA_$(date +%Y%m%d_%H%M%S)}"
 QA_LOG_FILE="${QA_LOG_FILE:-/tmp/neverfade-pos-qa-backend.log}"
 
+QA_PLATFORM_JWT_KEY="${QA_PLATFORM_JWT_KEY:-$(openssl rand -hex 32)}"
+QA_PLATFORM_JWT_ISSUER="${QA_PLATFORM_JWT_ISSUER:-NeverfadePos.Platform.QA}"
+QA_PLATFORM_JWT_AUDIENCE="${QA_PLATFORM_JWT_AUDIENCE:-NeverfadePos.Platform.QA.Client}"
+
 QA_STARTED_BACKEND=0
 QA_BACKEND_PID=""
 QA_TOKEN=""
@@ -84,6 +88,9 @@ qa_start_backend() {
   cd "$QA_PROJECT_ROOT" || return 1
 
   ASPNETCORE_ENVIRONMENT=Development \
+  PlatformJwt__Key="$QA_PLATFORM_JWT_KEY" \
+  PlatformJwt__Issuer="$QA_PLATFORM_JWT_ISSUER" \
+  PlatformJwt__Audience="$QA_PLATFORM_JWT_AUDIENCE" \
   dotnet run \
     --no-build \
     >"$QA_LOG_FILE" 2>&1 &

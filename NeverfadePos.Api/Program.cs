@@ -12,6 +12,8 @@ using NeverfadePos.Api.Services.Customer;
 using NeverfadePos.Api.Services.Karyawan;
 using NeverfadePos.Api.Services.Laporan;
 using NeverfadePos.Api.Services.Product;
+using NeverfadePos.Api.Services.PlatformAuth;
+using NeverfadePos.Api.Services.PlatformBootstrap;
 using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Services.StockHistory;
 using NeverfadePos.Api.Services.Transaction;
@@ -54,6 +56,42 @@ if (string.IsNullOrWhiteSpace(jwtAudience))
 {
     throw new InvalidOperationException(
         "Jwt:Audience missing.");
+}
+
+var platformJwtKey =
+    builder.Configuration["PlatformJwt:Key"];
+
+if (string.IsNullOrWhiteSpace(platformJwtKey) ||
+    platformJwtKey.Length < 32)
+{
+    throw new InvalidOperationException(
+        "PlatformJwt:Key missing or shorter than 32 characters.");
+}
+
+var platformJwtIssuer =
+    builder.Configuration["PlatformJwt:Issuer"];
+
+if (string.IsNullOrWhiteSpace(platformJwtIssuer))
+{
+    throw new InvalidOperationException(
+        "PlatformJwt:Issuer missing.");
+}
+
+var platformJwtAudience =
+    builder.Configuration["PlatformJwt:Audience"];
+
+if (string.IsNullOrWhiteSpace(platformJwtAudience))
+{
+    throw new InvalidOperationException(
+        "PlatformJwt:Audience missing.");
+}
+
+if (platformJwtKey == jwtKey ||
+    platformJwtIssuer == jwtIssuer ||
+    platformJwtAudience == jwtAudience)
+{
+    throw new InvalidOperationException(
+        "Platform JWT key, issuer, and audience must be separate from tenant JWT configuration.");
 }
 
 var allowedOrigins =
@@ -107,6 +145,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddScoped<CurrentUser>();
+builder.Services.AddScoped<PlatformCurrentUser>();
 
 builder.Services.AddScoped<TenantExecutionContext>();
 
@@ -127,6 +166,17 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     IAuthService,
     AuthService>();
+
+builder.Services.AddScoped<
+    IPlatformJwtService,
+    PlatformJwtService>();
+
+builder.Services.AddScoped<
+    IPlatformAuthService,
+    PlatformAuthService>();
+
+builder.Services.AddScoped<
+    PlatformUserBootstrapService>();
 
 builder.Services.AddScoped<
     IProductService,
@@ -171,7 +221,9 @@ builder.Services.AddDbContext<AppDbContext>(
 builder.Services
     .AddAuthentication(
         JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    .AddJwtBearer(
+        JwtBearerDefaults.AuthenticationScheme,
+        options =>
     {
         options.TokenValidationParameters =
             new TokenValidationParameters
@@ -189,9 +241,81 @@ builder.Services
                         Encoding.UTF8.GetBytes(
                             jwtKey))
             };
-    });
+    })
+    .AddJwtBearer(
+        PlatformAuthConstants.AuthenticationScheme,
+        options =>
+        {
+            options.TokenValidationParameters =
+                new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
 
-builder.Services.AddAuthorization();
+                    ValidIssuer = platformJwtIssuer,
+                    ValidAudience = platformJwtAudience,
+
+                    IssuerSigningKey =
+                        new SymmetricSecurityKey(
+                            Encoding.UTF8.GetBytes(
+                                platformJwtKey))
+                };
+
+            options.Events = new JwtBearerEvents
+            {
+                OnTokenValidated = context =>
+                {
+                    if (context.Principal?.HasClaim(
+                        claim =>
+                            claim.Type == "tenant_id") == true)
+                    {
+                        context.Fail(
+                            "Platform token must not contain tenant_id.");
+                    }
+
+                    return Task.CompletedTask;
+                },
+                OnChallenge = async context =>
+                {
+                    context.HandleResponse();
+                    context.Response.StatusCode =
+                        StatusCodes.Status401Unauthorized;
+                    context.Response.ContentType =
+                        "application/json";
+
+                    await context.Response.WriteAsJsonAsync(
+                        new
+                        {
+                            code =
+                                "PLATFORM_AUTHENTICATION_REQUIRED",
+                            message =
+                                "Autentikasi platform diperlukan."
+                        });
+                }
+            };
+        });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(
+        PlatformAuthConstants.AuthorizationPolicy,
+        policy =>
+        {
+            policy.AddAuthenticationSchemes(
+                PlatformAuthConstants.AuthenticationScheme);
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim(
+                PlatformAuthConstants.ScopeClaim,
+                PlatformAuthConstants.PlatformScope);
+            policy.RequireRole(
+                PlatformAuthConstants.SuperAdminRole);
+            policy.RequireAssertion(context =>
+                !context.User.HasClaim(
+                    claim => claim.Type == "tenant_id"));
+        });
+});
 
 var app = builder.Build();
 
@@ -217,6 +341,17 @@ await NeverfadePos.Api.Data.Seed.SeedData
         app.Configuration,
         app.Environment);
 
+await using (var bootstrapScope =
+    app.Services.CreateAsyncScope())
+{
+    await bootstrapScope.ServiceProvider
+        .GetRequiredService<
+            PlatformUserBootstrapService>()
+        .InitializeAsync();
+}
+
 app.MapControllers();
 
 app.Run();
+
+public partial class Program;

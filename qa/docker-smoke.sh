@@ -101,6 +101,18 @@ chmod 600 "$ENV_FILE"
   printf \
     'ConnectionStrings__DefaultConnection=%s\n' \
     "$CONNECTION_STRING"
+
+  printf \
+    'PlatformJwt__Key=%s\n' \
+    "$QA_PLATFORM_JWT_KEY"
+
+  printf \
+    'PlatformJwt__Issuer=%s\n' \
+    "$QA_PLATFORM_JWT_ISSUER"
+
+  printf \
+    'PlatformJwt__Audience=%s\n' \
+    "$QA_PLATFORM_JWT_AUDIENCE"
 } > "$ENV_FILE"
 
 unset CONNECTION_STRING

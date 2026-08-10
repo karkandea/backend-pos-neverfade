@@ -31,6 +31,9 @@ public sealed class ExceptionMiddleware(
 
         context.Response.StatusCode = exception switch
         {
+            PlatformApiException apiException =>
+                apiException.StatusCode,
+
             UnauthorizedAccessException =>
                 StatusCodes.Status401Unauthorized,
 
@@ -69,14 +72,21 @@ public sealed class ExceptionMiddleware(
                 context.Request.Path);
         }
 
-        var response = new
-        {
-            message =
-                context.Response.StatusCode ==
-                StatusCodes.Status500InternalServerError
-                    ? "Internal server error."
-                    : exception.Message
-        };
+        object response = exception is
+            PlatformApiException platformException
+                ? new
+                {
+                    code = platformException.Code,
+                    message = platformException.Message
+                }
+                : new
+                {
+                    message =
+                        context.Response.StatusCode ==
+                        StatusCodes.Status500InternalServerError
+                            ? "Internal server error."
+                            : exception.Message
+                };
 
         await context.Response.WriteAsync(
             JsonSerializer.Serialize(response));
