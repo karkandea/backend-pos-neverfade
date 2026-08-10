@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -34,6 +35,23 @@ def parse_datetime(value):
 
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
+
+    match = re.fullmatch(
+        r"(?P<prefix>.+T\d{2}:\d{2}:\d{2})"
+        r"(?:\.(?P<fraction>\d+))?"
+        r"(?P<offset>[+-]\d{2}:\d{2})?",
+        text,
+    )
+
+    if match and match.group("fraction"):
+        fraction = (
+            match.group("fraction") + "000000"
+        )[:6]
+        text = (
+            f"{match.group('prefix')}."
+            f"{fraction}"
+            f"{match.group('offset') or ''}"
+        )
 
     parsed = datetime.fromisoformat(text)
 
