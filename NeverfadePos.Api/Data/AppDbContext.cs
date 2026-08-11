@@ -29,6 +29,10 @@ public class AppDbContext : DbContext
     public DbSet<StockHistory> StockHistories => Set<StockHistory>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<TransactionItem> TransactionItems => Set<TransactionItem>();
+    public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<PaymentLedgerEntry> PaymentLedgerEntries => Set<PaymentLedgerEntry>();
+    public DbSet<PaymentWebhookEvent> PaymentWebhookEvents => Set<PaymentWebhookEvent>();
+    public DbSet<PaymentRoute> PaymentRoutes => Set<PaymentRoute>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

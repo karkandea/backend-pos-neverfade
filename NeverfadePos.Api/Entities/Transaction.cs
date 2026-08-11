@@ -34,9 +34,15 @@ public class Transaction : BaseEntity
 
     public decimal Kembalian { get; set; }
 
+    public string Status { get; set; } = TransactionStatuses.Paid;
+
+    public DateTime? FinalizedAt { get; set; }
+
     public Tenant? Tenant { get; set; }
 
     public Customer? Customer { get; set; }
 
     public ICollection<TransactionItem> Items { get; set; } = new List<TransactionItem>();
+
+    public Payment? Payment { get; set; }
 }

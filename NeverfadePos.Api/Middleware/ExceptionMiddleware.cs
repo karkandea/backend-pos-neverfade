@@ -34,6 +34,12 @@ public sealed class ExceptionMiddleware(
             PlatformApiException apiException =>
                 apiException.StatusCode,
 
+            PaymentApiException apiException =>
+                apiException.StatusCode,
+
+            NeverfadePos.Api.Payments.Xendit.XenditProviderException =>
+                StatusCodes.Status502BadGateway,
+
             UnauthorizedAccessException =>
                 StatusCodes.Status401Unauthorized,
 
@@ -78,6 +84,12 @@ public sealed class ExceptionMiddleware(
                 {
                     code = platformException.Code,
                     message = platformException.Message
+                }
+                : exception is PaymentApiException paymentException
+                ? new
+                {
+                    code = paymentException.Code,
+                    message = paymentException.Message
                 }
                 : new
                 {

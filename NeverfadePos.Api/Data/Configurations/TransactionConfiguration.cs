@@ -8,7 +8,11 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
 {
     public void Configure(EntityTypeBuilder<Transaction> builder)
     {
-        builder.ToTable("transactions");
+        builder.ToTable(
+            "transactions",
+            table => table.HasCheckConstraint(
+                "CK_transactions_Status",
+                "\"Status\" IN ('pending_payment', 'paid', 'failed')"));
 
         builder.HasKey(x => x.Id);
 
@@ -19,6 +23,10 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.Property(x => x.Kasir).HasMaxLength(200).IsRequired();
         builder.Property(x => x.CustomerNama).HasMaxLength(200);
         builder.Property(x => x.MetodePembayaran).HasMaxLength(50);
+        builder.Property(x => x.Status)
+            .HasMaxLength(30)
+            .HasDefaultValue(TransactionStatuses.Paid)
+            .IsRequired();
 
         builder.Property(x => x.Subtotal).HasPrecision(18,2);
         builder.Property(x => x.Disc).HasPrecision(18,2);

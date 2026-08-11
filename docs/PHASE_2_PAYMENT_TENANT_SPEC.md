@@ -60,6 +60,12 @@ Payment Gateway Platform Account
 
 Setiap tenant harus mempunyai identifier payment account sendiri, misalnya conceptual field `paymentAccountId`. NeverFade tidak boleh memiliki satu saldo global lalu menghitung manual kepemilikan saldo tenant jika provider mendukung sub-account / connected merchant / managed account equivalent. Nama teknis provider-specific ditentukan setelah payment gateway final dikonfirmasi.
 
+### 3.2.1 Approved Xendit Sandbox / MVP Exception
+
+Untuk development dan MVP sandbox, seluruh tenant menggunakan satu NeverFade Xendit sandbox account. NeverFade mempertahankan internal financial ledger yang wajib tenant-scoped untuk atribusi, reconciliation, dan pengujian saldo sandbox. Pencairan pada tahap sandbox/MVP bersifat request-based dan diproses manual oleh Super Admin.
+
+Keputusan ini bukan arsitektur custody production permanen dan tidak mengubah prinsip bahwa NeverFade tidak menjadi custodian dana merchant. Target production tetap xenPlatform dengan sub-account/payment account terisolasi per tenant. Migrasi dari shared sandbox account ke xenPlatform harus mempertahankan referensi payment dan ledger per tenant tanpa menggabungkan kepemilikan dana.
+
 ## 3.3 Cash Tidak Masuk Payment Gateway Balance
 
 Transaksi tunai tidak membuat payment gateway transaction. Transaksi tetap tercatat sebagai penjualan POS dan masuk laporan, tetapi tidak menambah pending balance, available balance, atau payment gateway balance.
@@ -109,6 +115,8 @@ Menu tenant: **Keuangan**.
 
 UI sebaiknya membaca provider balance jika API tersedia. Database NeverFade boleh menyimpan mirror/cache/ledger untuk reporting, reconciliation, references, dan audit, tetapi bukan source of truth actual custody bila provider menyediakan balance ledger.
 
+Untuk shared Xendit sandbox account yang approved pada MVP, internal tenant financial ledger menjadi source of truth atribusi saldo sandbox antar-tenant, bukan bukti custody production. Setiap entry wajib memiliki TenantId dan immutable payment/provider reference; tidak ada saldo global NeverFade yang boleh diatribusikan ke tenant hanya dari nominal atau timestamp.
+
 ---
 
 # 7. Tenant Financial UI
@@ -130,6 +138,8 @@ Initial page:
 Terminologi UI: Tarik Dana / Pencairan. Internal: Payout.
 
 Desain mendukung Automatic Payout dan Manual Payout; MVP bergantung provider. Manual flow harus memvalidasi available balance, meminta provider payout, dan memperbarui status dari provider/backend—tidak langsung mengurangi saldo berdasarkan frontend assumption.
+
+Untuk sandbox/MVP yang approved, withdrawal menggunakan request-based manual processing oleh Super Admin. Unit Phase 2C Payment Foundation tidak mengimplementasikan withdrawal API/UI; contract dan state transition pencairan dibekukan pada unit terpisah.
 
 Conceptual statuses: `requested`, `processing`, `succeeded`, `failed`, `cancelled`. Provider mapping TBD.
 
@@ -307,7 +317,17 @@ Business logic tidak tightly coupled ke provider. Target abstraction `PaymentPro
 
 # 27. Current Provider Decision
 
-STATUS: PENDING. Sebelum coding payment, audit provider untuk platform/sub-account, onboarding/KYC, QRIS/payment/webhook, split/fee, balance pending/available, bank management, payout/schedule/webhook, sandbox, idempotency, reconciliation. Jangan implementasikan adapter sebelum audit selesai.
+STATUS: APPROVED FOR SANDBOX FOUNDATION.
+
+- Provider: Xendit sandbox.
+- API foundation: Xendit Payments API v3 Payment Request.
+- Initial channel: QRIS.
+- Account topology: one shared NeverFade sandbox account with mandatory internal tenant-scoped ledger.
+- Payment confirmation: verified `x-callback-token` webhook; frontend/create response is not authoritative.
+- Withdrawal: request-based, manually processed by Super Admin in a later unit.
+- Permanent production target: xenPlatform with isolated tenant sub-accounts.
+
+Capability decisions outside this sandbox foundation—production onboarding/KYC, xenPlatform account provisioning, split/platform fee, production balance semantics, payout automation/schedule, and additional payment methods—remain pending and must not be invented in this unit.
 
 ---
 
@@ -384,9 +404,9 @@ DO NOT: invent provider endpoints/statuses/fees/KYC; create wallet custody; trus
 
 # 32. Pending Product Decisions
 
-1. Exact provider capability.
-2. QRIS/additional MVP methods.
-3. Automatic/manual payout.
+1. Production xenPlatform onboarding and account capability details.
+2. Additional payment methods beyond approved sandbox QRIS.
+3. Production automatic/manual payout model after the approved sandbox manual process.
 4. Minimum payout.
 5. Payout fee.
 6. Platform fee.
@@ -398,12 +418,12 @@ DO NOT: invent provider endpoints/statuses/fees/KYC; create wallet custody; trus
 
 Open decisions tidak boleh diselesaikan diam-diam.
 
-The following Phase 2B decisions are no longer open: lifecycle is only `active|suspended`; new tenants start active; suspension rejects login and all existing-session business access; JWT cutover requires re-login; platform JWT security configuration is fully separate; bootstrap is explicit one-time environment-controlled; initial owner password is supplied by superadmin; and lifecycle audit events are persisted.
+The following decisions are no longer open: Phase 2B lifecycle is only `active|suspended`; new tenants start active; suspension rejects login and all existing-session business access; JWT cutover requires re-login; platform JWT security configuration is fully separate; bootstrap is explicit one-time environment-controlled; initial owner password is supplied by superadmin; lifecycle audit events are persisted; and the Phase 2C sandbox foundation uses one shared NeverFade Xendit sandbox account with tenant-scoped internal ledger and later manual Super Admin withdrawal processing while production remains targeted at xenPlatform sub-accounts.
 
 ---
 
 # 33. Product Decision Summary
 
-APPROVED: multi-tenant; platform superadmin admin-managed onboarding; isolated tenant payment account; no NeverFade custody; non-cash via provider and cash outside balance; menu Keuangan; pending/available balance; Tarik Dana/Pencairan; webhook/server verification authoritative; payment resources tenant scoped; tenant management connected to payment onboarding; provider implementation waits for capability audit.
+APPROVED: multi-tenant; platform superadmin admin-managed onboarding; isolated production tenant payment account target; no NeverFade custody; non-cash via provider and cash outside balance; menu Keuangan; pending/available balance; Tarik Dana/Pencairan; webhook/server verification authoritative; payment resources tenant scoped; tenant management connected to payment onboarding; Xendit Payments API v3 QRIS for sandbox foundation; one shared sandbox account with internal per-tenant ledger; request-based manual sandbox withdrawal by Super Admin in a later unit; permanent production target remains xenPlatform isolated sub-accounts.
 
 END OF SPECIFICATION

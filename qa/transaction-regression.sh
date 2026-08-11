@@ -256,7 +256,7 @@ jq -n \
     discAmt:0,
     taxAmt:0,
     total:15000,
-    metodePembayaran:"QRIS",
+    metodePembayaran:"Tunai",
     dibayar:15000,
     kembalian:0
   }' > "$TMP_DIR/transaction-customer.json"
@@ -290,7 +290,7 @@ if jq -e \
   '.customerId == $customerId and
    .customerNama == $customerName and
    .total == 15000 and
-   .metodePembayaran == "QRIS"' \
+   .metodePembayaran == "Tunai"' \
   "$TMP_DIR/transaction-customer-response.json" \
   >/dev/null 2>&1
 then

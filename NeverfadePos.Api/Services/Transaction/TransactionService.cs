@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Transaction;
+using NeverfadePos.Api.Entities;
 
 namespace NeverfadePos.Api.Services.Transaction;
 
@@ -104,6 +105,15 @@ public sealed class TransactionService(
             !currentUser.UserId.HasValue)
         {
             throw new UnauthorizedAccessException();
+        }
+
+        if (!string.Equals(
+            request.MetodePembayaran,
+            "tunai",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Transaksi non-tunai harus dibuat melalui payment endpoint.");
         }
 
         if (request.Items.Count == 0)
@@ -313,7 +323,13 @@ public sealed class TransactionService(
                     dibayar,
 
                 Kembalian =
-                    kembalian
+                    kembalian,
+
+                Status =
+                    TransactionStatuses.Paid,
+
+                FinalizedAt =
+                    DateTime.UtcNow
             };
 
         db.Transactions.Add(entity);

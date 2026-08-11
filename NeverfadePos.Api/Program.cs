@@ -15,6 +15,8 @@ using NeverfadePos.Api.Services.Product;
 using NeverfadePos.Api.Services.PlatformAuth;
 using NeverfadePos.Api.Services.PlatformBootstrap;
 using NeverfadePos.Api.Services.PlatformTenant;
+using NeverfadePos.Api.Services.Payment;
+using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Services.StockHistory;
 using NeverfadePos.Api.Services.Transaction;
@@ -145,6 +147,17 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddHttpContextAccessor();
 
+builder.Services.Configure<XenditOptions>(
+    builder.Configuration.GetSection("Xendit"));
+
+builder.Services.AddHttpClient<
+    IXenditPaymentProvider,
+    XenditPaymentProvider>(client =>
+    {
+        client.BaseAddress = new Uri("https://api.xendit.co/");
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+
 builder.Services.AddScoped<CurrentUser>();
 builder.Services.AddScoped<PlatformCurrentUser>();
 
@@ -216,6 +229,10 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     ITransactionService,
     TransactionService>();
+
+builder.Services.AddScoped<
+    IPaymentService,
+    PaymentService>();
 
 builder.Services.AddScoped<
     NeverfadePos.Api.Services.Users.IUserService,

@@ -32,5 +32,13 @@ public class Tenant
 
     public ICollection<TransactionItem> TransactionItems { get; set; } = new List<TransactionItem>();
 
+    public ICollection<Payment> Payments { get; set; } = new List<Payment>();
+
+    public ICollection<PaymentLedgerEntry> PaymentLedgerEntries { get; set; } = new List<PaymentLedgerEntry>();
+
+    public ICollection<PaymentWebhookEvent> PaymentWebhookEvents { get; set; } = new List<PaymentWebhookEvent>();
+
+    public ICollection<PaymentRoute> PaymentRoutes { get; set; } = new List<PaymentRoute>();
+
     public ICollection<PlatformAuditEvent> PlatformAuditEvents { get; set; } = new List<PlatformAuditEvent>();
 }
