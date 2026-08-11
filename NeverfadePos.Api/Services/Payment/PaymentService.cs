@@ -166,6 +166,25 @@ internal sealed class PaymentService(
         }
     }
 
+    public async Task<PaymentStatusDto> GetStatusAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        var payment = await db.Payments
+            .AsNoTracking()
+            .Where(x => x.Id == paymentId)
+            .Select(x => new PaymentStatusDto
+            {
+                Id = x.Id,
+                TransactionId = x.TransactionId,
+                Status = x.Status
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return payment ?? throw new KeyNotFoundException(
+            "Payment tidak ditemukan.");
+    }
+
     public async Task ProcessXenditWebhookAsync(
         string? callbackToken,
         XenditPaymentWebhookDto webhook,

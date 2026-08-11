@@ -80,6 +80,100 @@ public sealed class XenditPaymentFoundationTests
     }
 
     [Fact]
+    public async Task PaymentStatus_ReturnsPendingPayment()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+
+        var response = await client.GetAsync($"/api/payments/{payment.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var status = await response.Content
+            .ReadFromJsonAsync<PaymentStatusDto>();
+        Assert.NotNull(status);
+        Assert.Equal(payment.Id, status.Id);
+        Assert.Equal(payment.TransactionId, status.TransactionId);
+        Assert.Equal(PaymentConstants.StatusPending, status.Status);
+    }
+
+    [Fact]
+    public async Task PaymentStatus_ReturnsPaidAfterValidWebhook()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+        using var webhookClient = factory.CreateClient();
+
+        var webhookResponse = await SendWebhookAsync(
+            webhookClient,
+            CaptureWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, webhookResponse.StatusCode);
+
+        var status = await client.GetFromJsonAsync<PaymentStatusDto>(
+            $"/api/payments/{payment.Id}");
+
+        Assert.NotNull(status);
+        Assert.Equal(PaymentConstants.StatusPaid, status.Status);
+    }
+
+    [Fact]
+    public async Task PaymentStatus_ReturnsFailedAfterFailureWebhook()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+        using var webhookClient = factory.CreateClient();
+
+        var webhookResponse = await SendWebhookAsync(
+            webhookClient,
+            FailureWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, webhookResponse.StatusCode);
+
+        var status = await client.GetFromJsonAsync<PaymentStatusDto>(
+            $"/api/payments/{payment.Id}");
+
+        Assert.NotNull(status);
+        Assert.Equal(PaymentConstants.StatusFailed, status.Status);
+    }
+
+    [Fact]
+    public async Task PaymentStatus_CrossTenantAccessReturnsNotFound()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var ownerClient = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(ownerClient);
+        var username = $"other-{Guid.NewGuid():N}";
+        const string password = "other-owner-password";
+
+        await SeedOtherTenantOwnerAsync(
+            factory,
+            username,
+            password);
+        using var otherTenantClient = await CreateTenantClientAsync(
+            factory,
+            username,
+            password);
+
+        var response = await otherTenantClient.GetAsync(
+            $"/api/payments/{payment.Id}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PaymentStatus_UnknownPaymentReturnsNotFound()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+
+        var response = await client.GetAsync(
+            $"/api/payments/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task SuccessfulWebhook_FinalizesExactlyOnce()
     {
         await using var factory = new PaymentApiFactory();
@@ -309,16 +403,61 @@ public sealed class XenditPaymentFoundationTests
     private static async Task<HttpClient> CreateOwnerClientAsync(
         PaymentApiFactory factory)
     {
+        return await CreateTenantClientAsync(
+            factory,
+            "owner",
+            "owner123");
+    }
+
+    private static async Task<HttpClient> CreateTenantClientAsync(
+        PaymentApiFactory factory,
+        string username,
+        string password)
+    {
         var client = factory.CreateClient();
         var loginResponse = await client.PostAsJsonAsync(
             "/api/auth/login",
-            new { username = "owner", password = "owner123" });
+            new { username, password });
         Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
         var login = await loginResponse.Content
             .ReadFromJsonAsync<LoginResponseDto>();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", login!.Token);
         return client;
+    }
+
+    private static async Task SeedOtherTenantOwnerAsync(
+        PaymentApiFactory factory,
+        string username,
+        string password)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantScope = scope.ServiceProvider
+            .GetRequiredService<ITrustedTenantExecutionScope>();
+        var tenantId = Guid.NewGuid();
+
+        db.Tenants.Add(new Tenant
+        {
+            Id = tenantId,
+            NamaToko = "Other Tenant",
+            Slug = $"other-{tenantId:N}",
+            Status = "active"
+        });
+
+        using (tenantScope.Begin(tenantId, "seed-other-payment-tenant"))
+        {
+            db.Users.Add(new User
+            {
+                TenantId = tenantId,
+                Nama = "Other Owner",
+                Username = username,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
+                Role = "owner",
+                Active = true
+            });
+            await db.SaveChangesAsync();
+        }
     }
 
     private static async Task<ProductDto> GetProductAsync(

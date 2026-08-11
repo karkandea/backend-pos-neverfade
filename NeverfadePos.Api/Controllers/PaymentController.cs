@@ -21,4 +21,14 @@ public sealed class PaymentController(IPaymentService paymentService)
             request,
             cancellationToken));
     }
+
+    [HttpGet("{paymentId:guid}")]
+    public async Task<ActionResult<PaymentStatusDto>> GetStatus(
+        Guid paymentId,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await paymentService.GetStatusAsync(
+            paymentId,
+            cancellationToken));
+    }
 }
