@@ -16,6 +16,7 @@ using NeverfadePos.Api.Services.PlatformAuth;
 using NeverfadePos.Api.Services.PlatformBootstrap;
 using NeverfadePos.Api.Services.PlatformTenant;
 using NeverfadePos.Api.Services.Payment;
+using NeverfadePos.Api.Services.Finance;
 using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Services.StockHistory;
@@ -233,6 +234,14 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     IPaymentService,
     PaymentService>();
+
+builder.Services.AddScoped<
+    ITenantFinanceService,
+    TenantFinanceService>();
+
+builder.Services.AddScoped<
+    IPlatformWithdrawalService,
+    PlatformWithdrawalService>();
 
 builder.Services.AddScoped<
     NeverfadePos.Api.Services.Users.IUserService,

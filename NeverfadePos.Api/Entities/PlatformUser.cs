@@ -20,4 +20,7 @@ public sealed class PlatformUser
 
     public ICollection<PlatformAuditEvent> AuditEvents { get; set; } =
         new List<PlatformAuditEvent>();
+
+    public ICollection<WithdrawalRequest> ProcessedWithdrawalRequests { get; set; } =
+        new List<WithdrawalRequest>();
 }

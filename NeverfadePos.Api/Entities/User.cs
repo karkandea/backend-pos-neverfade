@@ -15,4 +15,7 @@ public class User : BaseEntity
     public bool Active { get; set; } = true;
 
     public Tenant? Tenant { get; set; }
+
+    public ICollection<WithdrawalRequest> WithdrawalRequests { get; set; } =
+        new List<WithdrawalRequest>();
 }

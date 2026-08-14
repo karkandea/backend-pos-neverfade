@@ -33,6 +33,8 @@ public class AppDbContext : DbContext
     public DbSet<PaymentLedgerEntry> PaymentLedgerEntries => Set<PaymentLedgerEntry>();
     public DbSet<PaymentWebhookEvent> PaymentWebhookEvents => Set<PaymentWebhookEvent>();
     public DbSet<PaymentRoute> PaymentRoutes => Set<PaymentRoute>();
+    public DbSet<WithdrawalRequest> WithdrawalRequests => Set<WithdrawalRequest>();
+    public DbSet<WithdrawalRoute> WithdrawalRoutes => Set<WithdrawalRoute>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

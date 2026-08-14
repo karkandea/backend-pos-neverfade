@@ -12,6 +12,7 @@ public static class PaymentConstants
     public const string StatusFailed = "failed";
 
     public const string LedgerPaymentCredit = "payment_credit";
+    public const string LedgerWithdrawalDebit = "withdrawal_debit";
 }
 
 public static class TransactionStatuses

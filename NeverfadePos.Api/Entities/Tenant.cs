@@ -40,5 +40,9 @@ public class Tenant
 
     public ICollection<PaymentRoute> PaymentRoutes { get; set; } = new List<PaymentRoute>();
 
+    public ICollection<WithdrawalRequest> WithdrawalRequests { get; set; } = new List<WithdrawalRequest>();
+
+    public ICollection<WithdrawalRoute> WithdrawalRoutes { get; set; } = new List<WithdrawalRoute>();
+
     public ICollection<PlatformAuditEvent> PlatformAuditEvents { get; set; } = new List<PlatformAuditEvent>();
 }
