@@ -5,6 +5,8 @@ namespace NeverfadePos.Api.Services.Payment;
 
 public interface IPaymentService
 {
+    PaymentCapabilitiesDto GetCapabilities();
+
     Task<QrisPaymentDto> CreateQrisAsync(
         CreateTransactionDto request,
         CancellationToken cancellationToken = default);

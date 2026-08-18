@@ -9,6 +9,7 @@ using NeverfadePos.Api.DTOs.Payment;
 using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Payments.Xendit;
+using NeverfadePos.Api.Payments;
 
 namespace NeverfadePos.Api.Services.Payment;
 
@@ -16,10 +17,19 @@ internal sealed class PaymentService(
     AppDbContext db,
     CurrentUser currentUser,
     ITrustedTenantExecutionScope trustedTenantScope,
+    IPaymentModeGate paymentModeGate,
     IXenditPaymentProvider xendit,
     IOptions<XenditOptions> xenditOptions)
     : IPaymentService
 {
+    public PaymentCapabilitiesDto GetCapabilities()
+    {
+        var tenantId = currentUser.TenantId ??
+            throw new UnauthorizedAccessException();
+
+        return paymentModeGate.GetCapabilities(tenantId);
+    }
+
     public async Task<QrisPaymentDto> CreateQrisAsync(
         CreateTransactionDto request,
         CancellationToken cancellationToken = default)
@@ -29,6 +39,9 @@ internal sealed class PaymentService(
         {
             throw new UnauthorizedAccessException();
         }
+
+        paymentModeGate.EnsureQrisAllowed(
+            currentUser.TenantId.Value);
 
         if (!string.Equals(
             request.MetodePembayaran,

@@ -18,6 +18,7 @@ using NeverfadePos.Api.Services.PlatformTenant;
 using NeverfadePos.Api.Services.Payment;
 using NeverfadePos.Api.Services.Finance;
 using NeverfadePos.Api.Payments.Xendit;
+using NeverfadePos.Api.Payments;
 using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Services.StockHistory;
 using NeverfadePos.Api.Services.Transaction;
@@ -150,6 +151,13 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.Configure<XenditOptions>(
     builder.Configuration.GetSection("Xendit"));
+
+builder.Services.Configure<PaymentModeOptions>(
+    builder.Configuration.GetSection("Payments"));
+
+builder.Services.AddSingleton<
+    IPaymentModeGate,
+    PaymentModeGate>();
 
 builder.Services.AddHttpClient<
     IXenditPaymentProvider,
@@ -374,6 +382,8 @@ builder.Services.AddAuthorization(options =>
 });
 
 var app = builder.Build();
+
+_ = app.Services.GetRequiredService<IPaymentModeGate>();
 
 if (app.Environment.IsDevelopment())
 {

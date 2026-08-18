@@ -17,6 +17,7 @@ using NeverfadePos.Api.DTOs.Payment;
 using NeverfadePos.Api.DTOs.Product;
 using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
+using NeverfadePos.Api.Payments;
 using NeverfadePos.Api.Payments.Xendit;
 using Xunit;
 
@@ -24,6 +25,66 @@ namespace NeverfadePos.Api.Tests;
 
 public sealed class XenditPaymentFoundationTests
 {
+    [Fact]
+    public async Task Capabilities_ReturnConfiguredPaymentMode()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+
+        var capabilities = await client.GetFromJsonAsync<
+            PaymentCapabilitiesDto>("/api/payments/capabilities");
+
+        Assert.NotNull(capabilities);
+        Assert.True(capabilities.QrisEnabled);
+        Assert.Equal("live", capabilities.Mode);
+        Assert.False(capabilities.IsSandbox);
+    }
+
+    [Fact]
+    public async Task DisabledMode_BlocksQrisBeforeCreatingDraft()
+    {
+        await using var factory = new PaymentApiFactory(
+            paymentMode: "Disabled");
+        using var client = await CreateOwnerClientAsync(factory);
+        var product = await GetProductAsync(client);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/payments/qris",
+            CreateQrisRequest(product));
+
+        Assert.Equal(
+            HttpStatusCode.ServiceUnavailable,
+            response.StatusCode);
+        Assert.Contains(
+            "PAYMENT_QRIS_DISABLED",
+            await response.Content.ReadAsStringAsync());
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Empty(await db.Payments.ToListAsync());
+        Assert.Empty(await db.Transactions.ToListAsync());
+        Assert.Empty(factory.Provider.Requests);
+    }
+
+    [Fact]
+    public async Task AllowedSandboxTenant_CanUseExistingQrisFlow()
+    {
+        await using var factory = new PaymentApiFactory(
+            useAllowedSandboxGate: true);
+        using var client = await CreateOwnerClientAsync(factory);
+
+        var capabilities = await client.GetFromJsonAsync<
+            PaymentCapabilitiesDto>("/api/payments/capabilities");
+        var payment = await CreatePaymentAsync(client);
+
+        Assert.NotNull(capabilities);
+        Assert.True(capabilities.QrisEnabled);
+        Assert.Equal("sandbox", capabilities.Mode);
+        Assert.True(capabilities.IsSandbox);
+        Assert.Equal(PaymentConstants.StatusPending, payment.Status);
+        Assert.Single(factory.Provider.Requests);
+    }
+
     [Fact]
     public async Task CreateQris_UsesServerCalculatedAmount()
     {
@@ -285,7 +346,8 @@ public sealed class XenditPaymentFoundationTests
     [Fact]
     public async Task ExistingCashTransaction_RemainsImmediateAndHasNoPayment()
     {
-        await using var factory = new PaymentApiFactory();
+        await using var factory = new PaymentApiFactory(
+            paymentMode: "Disabled");
         using var client = await CreateOwnerClientAsync(factory);
         var productBefore = await GetProductAsync(client);
         var request = CreateQrisRequest(productBefore);
@@ -553,7 +615,10 @@ public sealed class XenditPaymentFoundationTests
             }));
     }
 
-    private sealed class PaymentApiFactory : WebApplicationFactory<Program>
+    private sealed class PaymentApiFactory(
+        string paymentMode = "Live",
+        bool useAllowedSandboxGate = false)
+        : WebApplicationFactory<Program>
     {
         private readonly string _databaseName =
             $"xendit-foundation-{Guid.NewGuid():N}";
@@ -577,7 +642,9 @@ public sealed class XenditPaymentFoundationTests
                 ["PlatformJwt:Audience"] =
                     "NeverfadePos.Platform.Payment.Test.Client",
                 ["PlatformBootstrap:Enabled"] = "false",
-                ["Xendit:SecretApiKey"] = "xnd_development_test_key",
+                ["Payments:Mode"] = paymentMode,
+                ["Payments:LiveEnabled"] = "true",
+                ["Xendit:SecretApiKey"] = "xnd_production_test_key",
                 ["Xendit:WebhookCallbackToken"] =
                     "xendit-test-callback-token"
             };
@@ -598,6 +665,13 @@ public sealed class XenditPaymentFoundationTests
                     IDbContextOptionsConfiguration<AppDbContext>>();
                 services.RemoveAll<IXenditPaymentProvider>();
 
+                if (useAllowedSandboxGate)
+                {
+                    services.RemoveAll<IPaymentModeGate>();
+                    services.AddSingleton<IPaymentModeGate>(
+                        new AllowedSandboxPaymentModeGate());
+                }
+
                 services.AddDbContext<AppDbContext>(options =>
                     options
                         .UseInMemoryDatabase(_databaseName)
@@ -605,6 +679,22 @@ public sealed class XenditPaymentFoundationTests
                             InMemoryEventId.TransactionIgnoredWarning)));
                 services.AddSingleton<IXenditPaymentProvider>(Provider);
             });
+        }
+    }
+
+    private sealed class AllowedSandboxPaymentModeGate
+        : IPaymentModeGate
+    {
+        public PaymentCapabilitiesDto GetCapabilities(Guid tenantId) =>
+            new()
+            {
+                QrisEnabled = true,
+                Mode = "sandbox",
+                IsSandbox = true
+            };
+
+        public void EnsureQrisAllowed(Guid tenantId)
+        {
         }
     }
 

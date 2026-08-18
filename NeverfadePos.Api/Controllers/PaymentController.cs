@@ -12,6 +12,12 @@ namespace NeverfadePos.Api.Controllers;
 public sealed class PaymentController(IPaymentService paymentService)
     : ControllerBase
 {
+    [HttpGet("capabilities")]
+    public ActionResult<PaymentCapabilitiesDto> GetCapabilities()
+    {
+        return Ok(paymentService.GetCapabilities());
+    }
+
     [HttpPost("qris")]
     public async Task<ActionResult<QrisPaymentDto>> CreateQris(
         CreateTransactionDto request,
