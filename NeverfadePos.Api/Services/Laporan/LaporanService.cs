@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Laporan;
+using NeverfadePos.Api.Entities;
 
 namespace NeverfadePos.Api.Services.Laporan;
 
@@ -34,7 +35,9 @@ public sealed class LaporanService(AppDbContext db)
         var query = db.Transactions
             .AsNoTracking()
             .Where(
-                x => x.CreatedAt >= startUtc);
+                x =>
+                    x.Status == TransactionStatuses.Paid &&
+                    x.CreatedAt >= startUtc);
 
         var omzet =
             await query
@@ -105,6 +108,7 @@ public sealed class LaporanService(AppDbContext db)
                 .AsNoTracking()
                 .Where(
                     x =>
+                        x.Status == TransactionStatuses.Paid &&
                         x.CreatedAt >= startUtc &&
                         x.CreatedAt < endUtc)
                 .Select(
@@ -174,6 +178,7 @@ public sealed class LaporanService(AppDbContext db)
             .AsNoTracking()
             .Where(
                 x =>
+                    x.Transaction!.Status == TransactionStatuses.Paid &&
                     x.Transaction!.CreatedAt >=
                     startUtc)
             .GroupBy(
