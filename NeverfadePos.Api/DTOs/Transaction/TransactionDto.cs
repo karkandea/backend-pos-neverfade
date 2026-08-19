@@ -33,4 +33,10 @@ public sealed class TransactionDto
     public decimal Dibayar { get; set; }
 
     public decimal Kembalian { get; set; }
+
+    public string Status { get; set; } = string.Empty;
+
+    public string? PaymentStatus { get; set; }
+
+    public string? PaymentFailureCode { get; set; }
 }

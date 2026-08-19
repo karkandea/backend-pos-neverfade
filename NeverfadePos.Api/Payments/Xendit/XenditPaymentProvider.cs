@@ -17,6 +17,7 @@ public sealed class XenditPaymentProvider(
         string referenceId,
         decimal amount,
         string description,
+        DateTime expiresAt,
         CancellationToken cancellationToken = default)
     {
         var secretApiKey = options.Value.SecretApiKey;
@@ -43,7 +44,8 @@ public sealed class XenditPaymentProvider(
             "IDR",
             amount,
             "QRIS",
-            description));
+            description,
+            new ChannelPropertiesRequest(expiresAt)));
 
         using var response = await httpClient.SendAsync(
             request,
@@ -90,6 +92,43 @@ public sealed class XenditPaymentProvider(
             body.ChannelProperties?.ExpiresAt);
     }
 
+    public async Task CancelPaymentRequestAsync(
+        string paymentRequestId,
+        CancellationToken cancellationToken = default)
+    {
+        var secretApiKey = options.Value.SecretApiKey;
+        if (string.IsNullOrWhiteSpace(secretApiKey))
+        {
+            throw new InvalidOperationException(
+                "Xendit:SecretApiKey is required for payment cancellation.");
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"v3/payment_requests/{Uri.EscapeDataString(paymentRequestId)}/cancel");
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.UTF8.GetBytes($"{secretApiKey}:")));
+        request.Headers.Add("api-version", ApiVersion);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new XenditProviderException(
+                (int)response.StatusCode,
+                "Xendit belum dapat membatalkan payment request.");
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<PaymentRequestResponse>(
+            cancellationToken: cancellationToken);
+        if (body is null || !string.Equals(body.Status, "CANCELED", StringComparison.Ordinal))
+        {
+            throw new XenditProviderException(
+                (int)response.StatusCode,
+                "Xendit belum mengonfirmasi pembatalan payment request.");
+        }
+    }
+
     private sealed record CreatePaymentRequest(
         [property: JsonPropertyName("reference_id")] string ReferenceId,
         [property: JsonPropertyName("type")] string Type,
@@ -97,7 +136,11 @@ public sealed class XenditPaymentProvider(
         [property: JsonPropertyName("currency")] string Currency,
         [property: JsonPropertyName("request_amount")] decimal RequestAmount,
         [property: JsonPropertyName("channel_code")] string ChannelCode,
-        [property: JsonPropertyName("description")] string Description);
+        [property: JsonPropertyName("description")] string Description,
+        [property: JsonPropertyName("channel_properties")] ChannelPropertiesRequest ChannelProperties);
+
+    private sealed record ChannelPropertiesRequest(
+        [property: JsonPropertyName("expires_at")] DateTime ExpiresAt);
 
     private sealed class PaymentRequestResponse
     {

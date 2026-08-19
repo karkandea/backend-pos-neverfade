@@ -52,10 +52,6 @@ internal sealed class PaymentService(
 
         if (existingPayment is not null)
         {
-            await ExpireIfNecessaryAsync(
-                existingPayment,
-                cancellationToken);
-
             if (existingPayment.Status == PaymentConstants.StatusCreating ||
                 existingPayment.Status == PaymentConstants.StatusPending)
             {
@@ -146,10 +142,18 @@ internal sealed class PaymentService(
 
         try
         {
+            var expiryMinutes = xenditOptions.Value.QrisExpiryMinutes;
+            if (expiryMinutes is < 2 or > 30)
+            {
+                throw new InvalidOperationException(
+                    "Xendit:QrisExpiryMinutes must be between 2 and 30.");
+            }
+
             var providerResult = await xendit.CreateQrisAsync(
                 referenceId,
                 draft.Total,
                 $"NeverFade POS {noTrx}",
+                DateTime.UtcNow.AddMinutes(expiryMinutes),
                 cancellationToken);
 
             if (!string.Equals(
@@ -219,7 +223,6 @@ internal sealed class PaymentService(
             throw new KeyNotFoundException("Payment tidak ditemukan.");
         }
 
-        await ExpireIfNecessaryAsync(payment, cancellationToken);
         return MapStatus(payment);
     }
 
@@ -238,7 +241,49 @@ internal sealed class PaymentService(
             return null;
         }
 
-        await ExpireIfNecessaryAsync(payment, cancellationToken);
+        return MapStatus(payment);
+    }
+
+    public async Task<PaymentStatusDto> CancelAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        var payment = await db.Payments
+            .Include(x => x.Transaction)
+            .SingleOrDefaultAsync(x => x.Id == paymentId, cancellationToken)
+            ?? throw new KeyNotFoundException("Payment tidak ditemukan.");
+
+        if (payment.Status == PaymentConstants.StatusPaid)
+        {
+            throw new PaymentApiException(
+                StatusCodes.Status409Conflict,
+                "PAYMENT_ALREADY_PAID",
+                "Pembayaran sudah berhasil dan tidak dapat dibatalkan.");
+        }
+
+        if (payment.Status == PaymentConstants.StatusFailed)
+        {
+            return MapStatus(payment);
+        }
+
+        if (string.IsNullOrWhiteSpace(payment.ProviderPaymentRequestId))
+        {
+            throw new PaymentApiException(
+                StatusCodes.Status409Conflict,
+                "PAYMENT_NOT_CANCELLABLE",
+                "Payment request belum siap dibatalkan. Periksa status kembali.");
+        }
+
+        await xendit.CancelPaymentRequestAsync(
+            payment.ProviderPaymentRequestId,
+            cancellationToken);
+
+        payment.Status = PaymentConstants.StatusFailed;
+        payment.FailureCode = "PAYMENT_REQUEST_CANCELED";
+        payment.UpdatedAt = DateTime.UtcNow;
+        payment.Transaction!.Status = TransactionStatuses.Failed;
+        await db.SaveChangesAsync(cancellationToken);
+
         return MapStatus(payment);
     }
 
@@ -304,9 +349,7 @@ internal sealed class PaymentService(
         }
         else
         {
-            payment.Status = IsExpiredFailure(webhook.Data.FailureCode)
-                ? PaymentConstants.StatusExpired
-                : PaymentConstants.StatusFailed;
+            payment.Status = PaymentConstants.StatusFailed;
             payment.FailureCode = webhook.Data.FailureCode;
             payment.ProviderPaymentId = webhook.Data.PaymentId;
             payment.UpdatedAt = DateTime.UtcNow;
@@ -406,34 +449,14 @@ internal sealed class PaymentService(
         });
     }
 
-    private async Task ExpireIfNecessaryAsync(
-        NeverfadePos.Api.Entities.Payment payment,
-        CancellationToken cancellationToken)
-    {
-        if (payment.Status != PaymentConstants.StatusPending ||
-            !payment.ExpiresAt.HasValue ||
-            payment.ExpiresAt.Value > DateTime.UtcNow)
-        {
-            return;
-        }
-
-        payment.Status = PaymentConstants.StatusExpired;
-        payment.FailureCode = "PAYMENT_REQUEST_EXPIRED";
-        payment.UpdatedAt = DateTime.UtcNow;
-
-        var transaction = await db.Transactions.SingleAsync(
-            x => x.Id == payment.TransactionId,
-            cancellationToken);
-        transaction.Status = TransactionStatuses.Failed;
-        await db.SaveChangesAsync(cancellationToken);
-    }
-
     private static PaymentStatusDto MapStatus(
         NeverfadePos.Api.Entities.Payment payment) => new()
     {
         Id = payment.Id,
         TransactionId = payment.TransactionId,
-        Status = payment.Status,
+        Status = IsExpiredFailure(payment.FailureCode)
+            ? PaymentConstants.StatusExpired
+            : payment.Status,
         Amount = payment.Amount,
         Currency = payment.Currency,
         ProviderPaymentRequestId =

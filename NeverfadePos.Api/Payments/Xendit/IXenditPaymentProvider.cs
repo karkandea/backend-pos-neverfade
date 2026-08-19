@@ -6,6 +6,11 @@ public interface IXenditPaymentProvider
         string referenceId,
         decimal amount,
         string description,
+        DateTime expiresAt,
+        CancellationToken cancellationToken = default);
+
+    Task CancelPaymentRequestAsync(
+        string paymentRequestId,
         CancellationToken cancellationToken = default);
 }
 

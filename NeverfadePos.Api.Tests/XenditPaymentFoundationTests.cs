@@ -216,7 +216,7 @@ public sealed class XenditPaymentFoundationTests
     }
 
     [Fact]
-    public async Task ExpiredPayment_IsAuthoritativelyClosed()
+    public async Task DisplayExpiry_DoesNotPrematurelyCloseProviderPayment()
     {
         await using var factory = new PaymentApiFactory();
         using var client = await CreateOwnerClientAsync(factory);
@@ -241,8 +241,8 @@ public sealed class XenditPaymentFoundationTests
             $"/api/payments/{payment.Id}");
 
         Assert.NotNull(status);
-        Assert.Equal(PaymentConstants.StatusExpired, status.Status);
-        Assert.Equal("PAYMENT_REQUEST_EXPIRED", status.FailureCode);
+        Assert.Equal(PaymentConstants.StatusPending, status.Status);
+        Assert.Null(status.FailureCode);
 
         await using var verifyScope = factory.Services.CreateAsyncScope();
         var verifyDb = verifyScope.ServiceProvider
@@ -255,9 +255,80 @@ public sealed class XenditPaymentFoundationTests
             .GetRequiredService<ITrustedTenantExecutionScope>()
             .Begin(verifyTenantId, "verify-expired-payment");
         Assert.Equal(
-            TransactionStatuses.Failed,
+            TransactionStatuses.PendingPayment,
             (await verifyDb.Transactions.SingleAsync(
                 x => x.Id == payment.TransactionId)).Status);
+    }
+
+    [Fact]
+    public async Task LateSuccessfulWebhook_AfterDisplayExpiry_FinalizesExactlyOnce()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.Where(x => x.Slug == "warung-lumpia-beef")
+                .Select(x => x.Id).SingleAsync();
+            using var tenantScope = scope.ServiceProvider
+                .GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "late-webhook-test");
+            (await db.Payments.SingleAsync(x => x.Id == payment.Id)).ExpiresAt =
+                DateTime.UtcNow.AddSeconds(-1);
+            await db.SaveChangesAsync();
+        }
+
+        using var webhookClient = factory.CreateClient();
+        using var webhook = await SendWebhookAsync(webhookClient, CaptureWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, webhook.StatusCode);
+        using var duplicate = await SendWebhookAsync(webhookClient, CaptureWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, duplicate.StatusCode);
+
+        var status = await client.GetFromJsonAsync<PaymentStatusDto>($"/api/payments/{payment.Id}");
+        Assert.Equal(PaymentConstants.StatusPaid, status!.Status);
+
+        await using var verifyScope = factory.Services.CreateAsyncScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var verifyTenantId = await verifyDb.Tenants.Where(x => x.Slug == "warung-lumpia-beef")
+            .Select(x => x.Id).SingleAsync();
+        using var verifyTenantScope = verifyScope.ServiceProvider
+            .GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(verifyTenantId, "verify-late-webhook");
+        Assert.Single(await verifyDb.PaymentLedgerEntries
+            .Where(x => x.PaymentId == payment.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task CancelPayment_CancelsProviderAndPreservesDraftForRecovery()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+
+        var response = await client.PostAsync($"/api/payments/{payment.Id}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var status = await response.Content.ReadFromJsonAsync<PaymentStatusDto>();
+        Assert.Equal(PaymentConstants.StatusFailed, status!.Status);
+        Assert.Equal("PAYMENT_REQUEST_CANCELED", status.FailureCode);
+        Assert.Equal(payment.ProviderPaymentRequestId, factory.Provider.Cancelled.Single());
+
+        var transaction = await client.GetFromJsonAsync<TransactionDto>(
+            $"/api/transactions/{payment.TransactionId}");
+        Assert.Equal(TransactionStatuses.Failed, transaction!.Status);
+        Assert.Equal(PaymentConstants.StatusFailed, transaction.PaymentStatus);
+        Assert.Equal("PAYMENT_REQUEST_CANCELED", transaction.PaymentFailureCode);
+        Assert.NotEmpty(transaction.Items);
+
+        var history = await client.GetFromJsonAsync<List<TransactionDto>>("/api/transactions");
+        var listed = Assert.Single(history!, x => x.Id == payment.TransactionId);
+        Assert.Equal(TransactionStatuses.Failed, listed.Status);
+        Assert.Equal("PAYMENT_REQUEST_CANCELED", listed.PaymentFailureCode);
+
+        var duplicate = await client.PostAsync($"/api/payments/{payment.Id}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, duplicate.StatusCode);
+        Assert.Single(factory.Provider.Cancelled);
     }
 
     [Fact]
@@ -298,6 +369,21 @@ public sealed class XenditPaymentFoundationTests
 
         Assert.NotNull(status);
         Assert.Equal(PaymentConstants.StatusFailed, status.Status);
+    }
+
+    [Fact]
+    public async Task ProviderExpiry_IsStoredSafelyAndReturnedAsExpired()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+        using var webhookClient = factory.CreateClient();
+        using var response = await SendWebhookAsync(webhookClient, ExpiryWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var status = await client.GetFromJsonAsync<PaymentStatusDto>($"/api/payments/{payment.Id}");
+        Assert.Equal(PaymentConstants.StatusExpired, status!.Status);
+        Assert.Equal("PAYMENT_REQUEST_EXPIRED", status.FailureCode);
     }
 
     [Fact]
@@ -530,6 +616,24 @@ public sealed class XenditPaymentFoundationTests
             channel_code = "QRIS",
             currency = "IDR",
             failure_code = "PAYMENT_FAILED"
+        }
+    };
+
+    private static object ExpiryWebhook(QrisPaymentDto payment) => new
+    {
+        @event = "payment.failure",
+        business_id = "xendit-sandbox-business",
+        created = DateTime.UtcNow,
+        data = new
+        {
+            payment_id = $"py-{payment.Id:N}",
+            payment_request_id = payment.ProviderPaymentRequestId,
+            reference_id = $"nf-{payment.Id:N}",
+            request_amount = payment.Amount,
+            status = "FAILED",
+            channel_code = "QRIS",
+            currency = "IDR",
+            failure_code = "PAYMENT_REQUEST_EXPIRED"
         }
     };
 
@@ -806,11 +910,13 @@ public sealed class XenditPaymentFoundationTests
             new();
 
         public decimal? LastAmount => Requests.LastOrDefault().Amount;
+        public List<string> Cancelled { get; } = new();
 
         public Task<XenditPaymentRequestResult> CreateQrisAsync(
             string referenceId,
             decimal amount,
             string description,
+            DateTime expiresAt,
             CancellationToken cancellationToken = default)
         {
             Requests.Add((referenceId, amount));
@@ -820,7 +926,15 @@ public sealed class XenditPaymentFoundationTests
                 amount,
                 "REQUIRES_ACTION",
                 "000201010212TEST-QRIS",
-                DateTime.UtcNow.AddMinutes(15)));
+                expiresAt));
+        }
+
+        public Task CancelPaymentRequestAsync(
+            string paymentRequestId,
+            CancellationToken cancellationToken = default)
+        {
+            Cancelled.Add(paymentRequestId);
+            return Task.CompletedTask;
         }
     }
 }

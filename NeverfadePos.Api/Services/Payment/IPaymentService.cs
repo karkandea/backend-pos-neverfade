@@ -18,6 +18,10 @@ public interface IPaymentService
     Task<PaymentStatusDto?> GetCurrentAsync(
         CancellationToken cancellationToken = default);
 
+    Task<PaymentStatusDto> CancelAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default);
+
     Task ProcessXenditWebhookAsync(
         string? callbackToken,
         XenditPaymentWebhookDto webhook,

@@ -20,6 +20,7 @@ public sealed class TransactionService(
         var query = db.Transactions
             .AsNoTracking()
             .Include(x => x.Items)
+            .Include(x => x.Payment)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -57,6 +58,7 @@ public sealed class TransactionService(
         var transaction = await db.Transactions
             .AsNoTracking()
             .Include(x => x.Items)
+            .Include(x => x.Payment)
             .FirstOrDefaultAsync(
                 x => x.Id == id,
                 cancellationToken);
@@ -489,7 +491,10 @@ public sealed class TransactionService(
                 x.MetodePembayaran,
 
             Dibayar = x.Dibayar,
-            Kembalian = x.Kembalian
+            Kembalian = x.Kembalian,
+            Status = x.Status,
+            PaymentStatus = x.Payment == null ? null : x.Payment.Status,
+            PaymentFailureCode = x.Payment == null ? null : x.Payment.FailureCode
         };
     }
 
@@ -528,7 +533,10 @@ public sealed class TransactionService(
                 x.MetodePembayaran,
 
             Dibayar = x.Dibayar,
-            Kembalian = x.Kembalian
+            Kembalian = x.Kembalian,
+            Status = x.Status,
+            PaymentStatus = x.Payment?.Status,
+            PaymentFailureCode = x.Payment?.FailureCode
         };
     }
 }
