@@ -8,6 +8,8 @@ public sealed class QrisPaymentDto
 
     public string ProviderPaymentRequestId { get; set; } = string.Empty;
 
+    public string ProviderReferenceId { get; set; } = string.Empty;
+
     public decimal Amount { get; set; }
 
     public string Currency { get; set; } = string.Empty;

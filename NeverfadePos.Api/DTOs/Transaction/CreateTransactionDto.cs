@@ -12,10 +12,10 @@ public sealed class CreateTransactionDto
     [Range(0, double.MaxValue)]
     public decimal Subtotal { get; set; }
 
-    [Range(0, double.MaxValue)]
+    [Range(0, 100)]
     public decimal Disc { get; set; }
 
-    [Range(0, double.MaxValue)]
+    [Range(0, 100)]
     public decimal Tax { get; set; }
 
     [Range(0, double.MaxValue)]

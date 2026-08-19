@@ -24,6 +24,10 @@ public sealed class Payment : BaseEntity
 
     public string? FailureCode { get; set; }
 
+    public string? QrString { get; set; }
+
+    public DateTime? ExpiresAt { get; set; }
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? PaidAt { get; set; }

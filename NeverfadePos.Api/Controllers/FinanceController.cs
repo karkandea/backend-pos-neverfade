@@ -22,6 +22,11 @@ public sealed class FinanceController(
         CancellationToken cancellationToken) =>
         Ok(await financeService.GetWithdrawalsAsync(cancellationToken));
 
+    [HttpGet("movements")]
+    public async Task<ActionResult<IReadOnlyList<FinanceMovementDto>>> GetMovements(
+        CancellationToken cancellationToken) =>
+        Ok(await financeService.GetMovementsAsync(cancellationToken));
+
     [HttpPost("withdrawals")]
     public async Task<ActionResult<WithdrawalDto>> CreateWithdrawal(
         CreateWithdrawalRequestDto request,

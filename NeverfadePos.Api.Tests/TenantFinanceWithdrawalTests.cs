@@ -50,6 +50,48 @@ public sealed class TenantFinanceWithdrawalTests
     }
 
     [Fact]
+    public async Task FinanceMovements_ExposeAuthoritativeCreditsAndWithdrawalStates()
+    {
+        await using var factory = new FinanceApiFactory();
+        using var owner = await CreateTenantClientAsync(
+            factory,
+            "owner",
+            "owner123");
+        await SeedCreditAsync(factory, 100_000m);
+        await SeedWithdrawalAsync(
+            factory,
+            30_000m,
+            WithdrawalConstants.StatusPaid,
+            includeDebit: true);
+        await SeedWithdrawalAsync(
+            factory,
+            20_000m,
+            WithdrawalConstants.StatusRejected);
+        await SeedWithdrawalAsync(
+            factory,
+            10_000m,
+            WithdrawalConstants.StatusRequested);
+
+        var movements = await owner.GetFromJsonAsync<List<FinanceMovementDto>>(
+            "/api/finance/movements");
+
+        Assert.NotNull(movements);
+        Assert.Equal(4, movements.Count);
+        Assert.Contains(movements, x =>
+            x.Type == "qris_credit" &&
+            x.Status == "paid" &&
+            x.Amount == 100_000m &&
+            x.PaymentId.HasValue &&
+            x.TransactionId.HasValue);
+        Assert.Contains(movements, x =>
+            x.Type == "withdrawal" && x.Status == "requested");
+        Assert.Contains(movements, x =>
+            x.Type == "withdrawal" && x.Status == "paid");
+        Assert.Contains(movements, x =>
+            x.Type == "withdrawal" && x.Status == "rejected");
+    }
+
+    [Fact]
     public async Task Owner_CanCreateValidWithdrawalRequest()
     {
         await using var factory = new FinanceApiFactory();

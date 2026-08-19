@@ -38,6 +38,49 @@ internal sealed class TenantFinanceService(
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<FinanceMovementDto>> GetMovementsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        RequireTenantOwner();
+
+        var credits = await db.PaymentLedgerEntries
+            .AsNoTracking()
+            .Where(x =>
+                x.EntryType == PaymentConstants.LedgerPaymentCredit)
+            .Select(x => new FinanceMovementDto
+            {
+                Id = x.Id,
+                Type = "qris_credit",
+                Status = "paid",
+                Amount = x.Amount,
+                Timestamp = x.CreatedAt,
+                Reference = x.ProviderReference ?? string.Empty,
+                PaymentId = x.PaymentId,
+                TransactionId = x.TransactionId
+            })
+            .ToListAsync(cancellationToken);
+
+        var withdrawals = await db.WithdrawalRequests
+            .AsNoTracking()
+            .Select(x => new FinanceMovementDto
+            {
+                Id = x.Id,
+                Type = "withdrawal",
+                Status = x.Status,
+                Amount = x.Amount,
+                Timestamp = x.ProcessedAt ?? x.CreatedAt,
+                Reference = x.Id.ToString(),
+                WithdrawalId = x.Id
+            })
+            .ToListAsync(cancellationToken);
+
+        return credits
+            .Concat(withdrawals)
+            .OrderByDescending(x => x.Timestamp)
+            .ThenByDescending(x => x.Id)
+            .ToList();
+    }
+
     public async Task<WithdrawalDto> CreateWithdrawalAsync(
         CreateWithdrawalRequestDto request,
         CancellationToken cancellationToken = default)

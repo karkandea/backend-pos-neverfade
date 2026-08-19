@@ -37,4 +37,14 @@ public sealed class PaymentController(IPaymentService paymentService)
             paymentId,
             cancellationToken));
     }
+
+    [HttpGet("current")]
+    public async Task<ActionResult<PaymentStatusDto>> GetCurrent(
+        CancellationToken cancellationToken)
+    {
+        var payment = await paymentService.GetCurrentAsync(
+            cancellationToken);
+
+        return payment is null ? NoContent() : Ok(payment);
+    }
 }

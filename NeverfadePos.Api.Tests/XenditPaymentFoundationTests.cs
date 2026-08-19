@@ -107,15 +107,43 @@ public sealed class XenditPaymentFoundationTests
         Assert.Equal("000201010212TEST-QRIS", result.QrString);
         Assert.Equal(product.HargaJual, factory.Provider.LastAmount);
 
+        await using var manipulatedFactory = new PaymentApiFactory();
+        using var manipulatedClient = await CreateOwnerClientAsync(
+            manipulatedFactory);
+        var manipulatedProduct = await GetProductAsync(manipulatedClient);
         var manipulated = CreateQrisRequest(
-            product,
-            totalOverride: product.HargaJual + 1m);
-        var rejected = await client.PostAsJsonAsync(
+            manipulatedProduct,
+            totalOverride: manipulatedProduct.HargaJual + 1m);
+        var rejected = await manipulatedClient.PostAsJsonAsync(
             "/api/payments/qris",
             manipulated);
 
         Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
-        Assert.Single(factory.Provider.Requests);
+        Assert.Empty(manipulatedFactory.Provider.Requests);
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(101, 0)]
+    [InlineData(0, -1)]
+    [InlineData(0, 101)]
+    public async Task InvalidDiscountOrTax_IsRejectedBeforePaymentCreation(
+        decimal discount,
+        decimal tax)
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var product = await GetProductAsync(client);
+        var request = CreateQrisRequest(product);
+        request.Disc = discount;
+        request.Tax = tax;
+
+        var response = await client.PostAsJsonAsync(
+            "/api/payments/qris",
+            request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(factory.Provider.Requests);
     }
 
     [Fact]
@@ -156,6 +184,80 @@ public sealed class XenditPaymentFoundationTests
         Assert.Equal(payment.Id, status.Id);
         Assert.Equal(payment.TransactionId, status.TransactionId);
         Assert.Equal(PaymentConstants.StatusPending, status.Status);
+        Assert.Equal(payment.Amount, status.Amount);
+        Assert.Equal(payment.ProviderPaymentRequestId,
+            status.ProviderPaymentRequestId);
+        Assert.Equal("000201010212TEST-QRIS", status.QrString);
+        Assert.NotNull(status.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task CurrentPayment_RestoresPendingPaymentAndBlocksDuplicate()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+
+        var current = await client.GetFromJsonAsync<PaymentStatusDto>(
+            "/api/payments/current");
+        var product = await GetProductAsync(client);
+        var duplicate = await client.PostAsJsonAsync(
+            "/api/payments/qris",
+            CreateQrisRequest(product));
+
+        Assert.NotNull(current);
+        Assert.Equal(payment.Id, current.Id);
+        Assert.Equal(PaymentConstants.StatusPending, current.Status);
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        Assert.Contains(
+            "PAYMENT_ALREADY_PENDING",
+            await duplicate.Content.ReadAsStringAsync());
+        Assert.Single(factory.Provider.Requests);
+    }
+
+    [Fact]
+    public async Task ExpiredPayment_IsAuthoritativelyClosed()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants
+                .Where(x => x.Slug == "warung-lumpia-beef")
+                .Select(x => x.Id)
+                .SingleAsync();
+            using var tenantScope = scope.ServiceProvider
+                .GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "expire-payment-test");
+            var entity = await db.Payments.SingleAsync(x => x.Id == payment.Id);
+            entity.ExpiresAt = DateTime.UtcNow.AddSeconds(-1);
+            await db.SaveChangesAsync();
+        }
+
+        var status = await client.GetFromJsonAsync<PaymentStatusDto>(
+            $"/api/payments/{payment.Id}");
+
+        Assert.NotNull(status);
+        Assert.Equal(PaymentConstants.StatusExpired, status.Status);
+        Assert.Equal("PAYMENT_REQUEST_EXPIRED", status.FailureCode);
+
+        await using var verifyScope = factory.Services.CreateAsyncScope();
+        var verifyDb = verifyScope.ServiceProvider
+            .GetRequiredService<AppDbContext>();
+        var verifyTenantId = await verifyDb.Tenants
+            .Where(x => x.Slug == "warung-lumpia-beef")
+            .Select(x => x.Id)
+            .SingleAsync();
+        using var verifyTenantScope = verifyScope.ServiceProvider
+            .GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(verifyTenantId, "verify-expired-payment");
+        Assert.Equal(
+            TransactionStatuses.Failed,
+            (await verifyDb.Transactions.SingleAsync(
+                x => x.Id == payment.TransactionId)).Status);
     }
 
     [Fact]

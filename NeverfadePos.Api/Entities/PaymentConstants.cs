@@ -10,6 +10,7 @@ public static class PaymentConstants
     public const string StatusPending = "pending";
     public const string StatusPaid = "paid";
     public const string StatusFailed = "failed";
+    public const string StatusExpired = "expired";
 
     public const string LedgerPaymentCredit = "payment_credit";
     public const string LedgerWithdrawalDebit = "withdrawal_debit";

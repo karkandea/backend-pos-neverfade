@@ -43,6 +43,29 @@ internal sealed class PaymentService(
         paymentModeGate.EnsureQrisAllowed(
             currentUser.TenantId.Value);
 
+        var existingPayment = await db.Payments
+            .Where(x =>
+                x.Status == PaymentConstants.StatusCreating ||
+                x.Status == PaymentConstants.StatusPending)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (existingPayment is not null)
+        {
+            await ExpireIfNecessaryAsync(
+                existingPayment,
+                cancellationToken);
+
+            if (existingPayment.Status == PaymentConstants.StatusCreating ||
+                existingPayment.Status == PaymentConstants.StatusPending)
+            {
+                throw new PaymentApiException(
+                    StatusCodes.Status409Conflict,
+                    "PAYMENT_ALREADY_PENDING",
+                    "Masih ada pembayaran QRIS yang belum selesai.");
+            }
+        }
+
         if (!string.Equals(
             request.MetodePembayaran,
             "QRIS",
@@ -142,6 +165,8 @@ internal sealed class PaymentService(
 
             payment.ProviderPaymentRequestId =
                 providerResult.PaymentRequestId;
+            payment.QrString = providerResult.QrString;
+            payment.ExpiresAt = providerResult.ExpiresAt;
             payment.Status = PaymentConstants.StatusPending;
             payment.UpdatedAt = DateTime.UtcNow;
 
@@ -162,6 +187,7 @@ internal sealed class PaymentService(
                 TransactionId = transaction.Id,
                 ProviderPaymentRequestId =
                     providerResult.PaymentRequestId,
+                ProviderReferenceId = payment.ProviderReferenceId,
                 Amount = payment.Amount,
                 Currency = payment.Currency,
                 Status = payment.Status,
@@ -184,18 +210,36 @@ internal sealed class PaymentService(
         CancellationToken cancellationToken = default)
     {
         var payment = await db.Payments
-            .AsNoTracking()
-            .Where(x => x.Id == paymentId)
-            .Select(x => new PaymentStatusDto
-            {
-                Id = x.Id,
-                TransactionId = x.TransactionId,
-                Status = x.Status
-            })
-            .SingleOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(
+                x => x.Id == paymentId,
+                cancellationToken);
 
-        return payment ?? throw new KeyNotFoundException(
-            "Payment tidak ditemukan.");
+        if (payment is null)
+        {
+            throw new KeyNotFoundException("Payment tidak ditemukan.");
+        }
+
+        await ExpireIfNecessaryAsync(payment, cancellationToken);
+        return MapStatus(payment);
+    }
+
+    public async Task<PaymentStatusDto?> GetCurrentAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var payment = await db.Payments
+            .Where(x =>
+                x.Status == PaymentConstants.StatusCreating ||
+                x.Status == PaymentConstants.StatusPending)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (payment is null)
+        {
+            return null;
+        }
+
+        await ExpireIfNecessaryAsync(payment, cancellationToken);
+        return MapStatus(payment);
     }
 
     public async Task ProcessXenditWebhookAsync(
@@ -260,7 +304,9 @@ internal sealed class PaymentService(
         }
         else
         {
-            payment.Status = PaymentConstants.StatusFailed;
+            payment.Status = IsExpiredFailure(webhook.Data.FailureCode)
+                ? PaymentConstants.StatusExpired
+                : PaymentConstants.StatusFailed;
             payment.FailureCode = webhook.Data.FailureCode;
             payment.ProviderPaymentId = webhook.Data.PaymentId;
             payment.UpdatedAt = DateTime.UtcNow;
@@ -359,6 +405,51 @@ internal sealed class PaymentService(
             ProviderReference = webhook.Data.PaymentId
         });
     }
+
+    private async Task ExpireIfNecessaryAsync(
+        NeverfadePos.Api.Entities.Payment payment,
+        CancellationToken cancellationToken)
+    {
+        if (payment.Status != PaymentConstants.StatusPending ||
+            !payment.ExpiresAt.HasValue ||
+            payment.ExpiresAt.Value > DateTime.UtcNow)
+        {
+            return;
+        }
+
+        payment.Status = PaymentConstants.StatusExpired;
+        payment.FailureCode = "PAYMENT_REQUEST_EXPIRED";
+        payment.UpdatedAt = DateTime.UtcNow;
+
+        var transaction = await db.Transactions.SingleAsync(
+            x => x.Id == payment.TransactionId,
+            cancellationToken);
+        transaction.Status = TransactionStatuses.Failed;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static PaymentStatusDto MapStatus(
+        NeverfadePos.Api.Entities.Payment payment) => new()
+    {
+        Id = payment.Id,
+        TransactionId = payment.TransactionId,
+        Status = payment.Status,
+        Amount = payment.Amount,
+        Currency = payment.Currency,
+        ProviderPaymentRequestId =
+            payment.ProviderPaymentRequestId ?? string.Empty,
+        ProviderReferenceId = payment.ProviderReferenceId,
+        QrString = payment.QrString,
+        ExpiresAt = payment.ExpiresAt,
+        FailureCode = payment.FailureCode,
+        UpdatedAt = payment.UpdatedAt
+    };
+
+    private static bool IsExpiredFailure(string? failureCode) =>
+        string.Equals(
+            failureCode,
+            "PAYMENT_REQUEST_EXPIRED",
+            StringComparison.OrdinalIgnoreCase);
 
     private async Task<TransactionDraft> ResolveDraftAsync(
         CreateTransactionDto request,

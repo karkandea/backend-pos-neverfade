@@ -10,6 +10,9 @@ public interface ITenantFinanceService
     Task<IReadOnlyList<WithdrawalDto>> GetWithdrawalsAsync(
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<FinanceMovementDto>> GetMovementsAsync(
+        CancellationToken cancellationToken = default);
+
     Task<WithdrawalDto> CreateWithdrawalAsync(
         CreateWithdrawalRequestDto request,
         CancellationToken cancellationToken = default);
