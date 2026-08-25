@@ -9,7 +9,9 @@ namespace NeverfadePos.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/payments")]
-public sealed class PaymentController(IPaymentService paymentService)
+public sealed class PaymentController(
+    IPaymentService paymentService,
+    ISandboxQrisQaService sandboxQrisQaService)
     : ControllerBase
 {
     [HttpGet("capabilities")]
@@ -25,6 +27,17 @@ public sealed class PaymentController(IPaymentService paymentService)
     {
         return Ok(await paymentService.CreateQrisAsync(
             request,
+            cancellationToken));
+    }
+
+    [HttpPost("qa/simulate-scan")]
+    [Authorize(Roles = "owner,admin")]
+    public async Task<ActionResult<PaymentStatusDto>> SimulateSandboxScan(
+        SandboxQrisScanRequest request,
+        CancellationToken cancellationToken)
+    {
+        return Accepted(await sandboxQrisQaService.SimulateScannedQrisAsync(
+            request.QrString,
             cancellationToken));
     }
 
