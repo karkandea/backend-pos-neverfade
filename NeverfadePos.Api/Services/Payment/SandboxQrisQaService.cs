@@ -3,6 +3,7 @@ using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Payment;
+using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Payments;
 using NeverfadePos.Api.Payments.Xendit;
 
