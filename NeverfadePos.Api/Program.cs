@@ -167,6 +167,14 @@ builder.Services.AddHttpClient<
         client.Timeout = TimeSpan.FromSeconds(30);
     });
 
+builder.Services.AddHttpClient<
+    IXenditSandboxSimulator,
+    XenditSandboxSimulator>(client =>
+    {
+        client.BaseAddress = new Uri("https://api.xendit.co/");
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+
 builder.Services.AddScoped<CurrentUser>();
 builder.Services.AddScoped<PlatformCurrentUser>();
 
@@ -242,6 +250,10 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     IPaymentService,
     PaymentService>();
+
+builder.Services.AddScoped<
+    ISandboxQrisQaService,
+    SandboxQrisQaService>();
 
 builder.Services.AddScoped<
     ITenantFinanceService,
