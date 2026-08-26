@@ -9,6 +9,11 @@ public interface IXenditPaymentProvider
         DateTime expiresAt,
         CancellationToken cancellationToken = default);
 
+    Task<string> GetPaymentRequestStatusAsync(
+        string paymentRequestId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult("UNKNOWN");
+
     Task CancelPaymentRequestAsync(
         string paymentRequestId,
         CancellationToken cancellationToken = default);
