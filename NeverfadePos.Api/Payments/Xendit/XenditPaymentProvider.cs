@@ -92,6 +92,45 @@ public sealed class XenditPaymentProvider(
             body.ChannelProperties?.ExpiresAt);
     }
 
+    public async Task<string> GetPaymentRequestStatusAsync(
+        string paymentRequestId,
+        CancellationToken cancellationToken = default)
+    {
+        var secretApiKey = options.Value.SecretApiKey;
+        if (string.IsNullOrWhiteSpace(secretApiKey))
+        {
+            throw new InvalidOperationException(
+                "Xendit:SecretApiKey is required for payment status lookup.");
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"v3/payment_requests/{Uri.EscapeDataString(paymentRequestId)}");
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.UTF8.GetBytes($"{secretApiKey}:")));
+        request.Headers.Add("api-version", ApiVersion);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new XenditProviderException(
+                (int)response.StatusCode,
+                "Xendit belum dapat membaca status payment request.");
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<PaymentRequestResponse>(
+            cancellationToken: cancellationToken);
+        if (body is null || string.IsNullOrWhiteSpace(body.Status))
+        {
+            throw new XenditProviderException(
+                (int)response.StatusCode,
+                "Xendit mengembalikan status payment request kosong.");
+        }
+
+        return body.Status;
+    }
+
     public async Task CancelPaymentRequestAsync(
         string paymentRequestId,
         CancellationToken cancellationToken = default)
