@@ -9,6 +9,7 @@ public sealed class PaymentModeGate : IPaymentModeGate
 {
     private readonly PaymentMode _mode;
     private readonly HashSet<Guid> _sandboxAllowedTenantIds;
+    private readonly HashSet<Guid> _liveAllowedTenantIds;
 
     public PaymentModeGate(
         IOptions<PaymentModeOptions> paymentOptions,
@@ -17,7 +18,11 @@ public sealed class PaymentModeGate : IPaymentModeGate
         var options = paymentOptions.Value;
         _mode = ParseMode(options.Mode);
         _sandboxAllowedTenantIds = ParseTenantIds(
-            options.SandboxAllowedTenantIds);
+            options.SandboxAllowedTenantIds,
+            "Payments:SandboxAllowedTenantIds");
+        _liveAllowedTenantIds = ParseTenantIds(
+            options.LiveAllowedTenantIds,
+            "Payments:LiveAllowedTenantIds");
 
         ValidateConfiguration(options, xenditOptions.Value);
     }
@@ -27,7 +32,8 @@ public sealed class PaymentModeGate : IPaymentModeGate
         var sandbox = _mode == PaymentMode.Sandbox;
         var enabled = _mode switch
         {
-            PaymentMode.Live => true,
+            PaymentMode.Live =>
+                _liveAllowedTenantIds.Contains(tenantId),
             PaymentMode.Sandbox =>
                 _sandboxAllowedTenantIds.Contains(tenantId),
             _ => false
@@ -58,6 +64,15 @@ public sealed class PaymentModeGate : IPaymentModeGate
                 StatusCodes.Status403Forbidden,
                 "PAYMENT_SANDBOX_TENANT_NOT_ALLOWED",
                 "QRIS Sandbox tidak tersedia untuk tenant ini.");
+        }
+
+        if (_mode == PaymentMode.Live &&
+            !_liveAllowedTenantIds.Contains(tenantId))
+        {
+            throw new PaymentApiException(
+                StatusCodes.Status403Forbidden,
+                "PAYMENT_LIVE_TENANT_NOT_ALLOWED",
+                "QRIS Live belum diaktifkan untuk tenant ini.");
         }
     }
 
@@ -101,6 +116,12 @@ public sealed class PaymentModeGate : IPaymentModeGate
                 "Payments:LiveEnabled must be explicitly true in Live mode.");
         }
 
+        if (_liveAllowedTenantIds.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "Payments:LiveAllowedTenantIds must contain at least one tenant ID in Live mode.");
+        }
+
         if (!xendit.SecretApiKey.StartsWith(
                 "xnd_production_",
                 StringComparison.Ordinal))
@@ -124,7 +145,9 @@ public sealed class PaymentModeGate : IPaymentModeGate
             "Payments:Mode must be Disabled, Sandbox, or Live.");
     }
 
-    private static HashSet<Guid> ParseTenantIds(string? value)
+    private static HashSet<Guid> ParseTenantIds(
+        string? value,
+        string optionName)
     {
         var tenantIds = new HashSet<Guid>();
 
@@ -137,7 +160,7 @@ public sealed class PaymentModeGate : IPaymentModeGate
                 tenantId == Guid.Empty)
             {
                 throw new InvalidOperationException(
-                    "Payments:SandboxAllowedTenantIds contains an invalid tenant ID.");
+                    $"{optionName} contains an invalid tenant ID.");
             }
 
             tenantIds.Add(tenantId);
