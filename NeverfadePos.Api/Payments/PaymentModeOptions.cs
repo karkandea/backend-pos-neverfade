@@ -7,4 +7,6 @@ public sealed class PaymentModeOptions
     public string SandboxAllowedTenantIds { get; set; } = string.Empty;
 
     public bool LiveEnabled { get; set; }
+
+    public string LiveAllowedTenantIds { get; set; } = string.Empty;
 }
