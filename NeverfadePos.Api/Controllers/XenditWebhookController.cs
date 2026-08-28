@@ -30,10 +30,10 @@ public sealed class XenditWebhookController(IPaymentService paymentService)
             ex.Code == "XENDIT_WEBHOOK_INVALID" &&
             IsDashboardLegacySample(webhook))
         {
-            // Xendit Dashboard "Test and save" currently sends a legacy
-            // sample payload. The payment service verifies the callback token
-            // before strict v3 validation, so reaching this catch means the
-            // token already passed and no payment mutation has occurred.
+            // Xendit Dashboard "Test and save" sends a fixed legacy/sample
+            // payload. The payment service verifies the callback token before
+            // strict v3 validation, so reaching this catch means the token
+            // already passed and no payment mutation has occurred.
             return Ok();
         }
 
@@ -54,9 +54,11 @@ public sealed class XenditWebhookController(IPaymentService paymentService)
                 StringComparison.Ordinal);
 
         return legacyEvent &&
+            string.Equals(
+                webhook.BusinessId,
+                "sample_business_id",
+                StringComparison.Ordinal) &&
             webhook.Data is not null &&
-            string.IsNullOrWhiteSpace(webhook.Data.PaymentId) &&
-            string.IsNullOrWhiteSpace(webhook.Data.PaymentRequestId) &&
             !string.IsNullOrWhiteSpace(webhook.Data.LegacyId) &&
             webhook.Data.LegacyAmount is > 0m;
     }
