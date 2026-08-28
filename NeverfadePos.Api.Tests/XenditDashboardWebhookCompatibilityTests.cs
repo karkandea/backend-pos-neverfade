@@ -37,6 +37,65 @@ public sealed class XenditDashboardWebhookCompatibilityTests
     }
 
     [Fact]
+    public async Task DashboardV3PaymentStatusSample_RouteMissing_IsAcknowledged()
+    {
+        var service = new ThrowingPaymentService(
+            new PaymentApiException(
+                StatusCodes.Status404NotFound,
+                "PAYMENT_ROUTE_NOT_FOUND",
+                "dashboard fixture has no NeverFade route"));
+        var controller = new XenditWebhookController(service);
+
+        var result = await controller.Payment(
+            "verified-by-service",
+            CreateDashboardV3PaymentStatusSample(),
+            CancellationToken.None);
+
+        Assert.IsType<OkResult>(result);
+        Assert.Equal(1, service.WebhookCalls);
+    }
+
+    [Fact]
+    public async Task DashboardV3PaymentStatusSample_WithInvalidToken_RemainsRejected()
+    {
+        var expected = new PaymentApiException(
+            StatusCodes.Status401Unauthorized,
+            "XENDIT_WEBHOOK_UNAUTHORIZED",
+            "invalid callback token");
+        var service = new ThrowingPaymentService(expected);
+        var controller = new XenditWebhookController(service);
+
+        var actual = await Assert.ThrowsAsync<PaymentApiException>(() =>
+            controller.Payment(
+                "wrong-token",
+                CreateDashboardV3PaymentStatusSample(),
+                CancellationToken.None));
+
+        Assert.Same(expected, actual);
+    }
+
+    [Fact]
+    public async Task UnknownV3Route_RemainsRejected()
+    {
+        var expected = new PaymentApiException(
+            StatusCodes.Status404NotFound,
+            "PAYMENT_ROUTE_NOT_FOUND",
+            "unknown real payment route");
+        var service = new ThrowingPaymentService(expected);
+        var controller = new XenditWebhookController(service);
+        var webhook = CreateDashboardV3PaymentStatusSample();
+        webhook.Data.PaymentRequestId = "pr-real-unknown";
+
+        var actual = await Assert.ThrowsAsync<PaymentApiException>(() =>
+            controller.Payment(
+                "verified-by-service",
+                webhook,
+                CancellationToken.None));
+
+        Assert.Same(expected, actual);
+    }
+
+    [Fact]
     public async Task DashboardSample_WithInvalidToken_RemainsRejected()
     {
         var expected = new PaymentApiException(
@@ -152,6 +211,23 @@ public sealed class XenditDashboardWebhookCompatibilityTests
             Currency = "IDR"
         }
     };
+
+    private static XenditPaymentWebhookDto CreateDashboardV3PaymentStatusSample() =>
+        new()
+        {
+            Event = "payment.capture",
+            BusinessId = "62440e322008e87fb29c1fd0",
+            Data = new XenditPaymentWebhookDataDto
+            {
+                PaymentId = "py-97716cc2-2840-4ead-949b-db60e9aeb55e",
+                PaymentRequestId = "pr-ced7965b-d588-49f1-ba41-d499277e5395",
+                ReferenceId = "90392f42-d98a-49ef-a7f3-90392f42d98a",
+                RequestAmount = 10000m,
+                Status = "SUCCEEDED",
+                ChannelCode = "CARDS",
+                Currency = "IDR"
+            }
+        };
 
     private sealed class ThrowingPaymentService(Exception webhookException)
         : IPaymentService
