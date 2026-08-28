@@ -42,14 +42,25 @@ internal sealed class SandboxQrisQaService(
                 "QRIS yang dipindai tidak valid.");
         }
 
+        // Xendit Sandbox may reuse the same QR payload across payment requests.
+        // Prefer the current actionable payment, then fall back to the newest
+        // historical match so already-paid scans remain idempotent.
         var payment = await db.Payments
-            .SingleOrDefaultAsync(
-                x => x.QrString == normalizedQrString,
-                cancellationToken)
-            ?? throw new PaymentApiException(
-                StatusCodes.Status404NotFound,
-                "QA_QRIS_NOT_FOUND",
-                "QRIS Sandbox ini tidak dikenali untuk tenant yang sedang login.");
+            .Where(x =>
+                x.QrString == normalizedQrString &&
+                x.Status == PaymentConstants.StatusPending)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        payment ??= await db.Payments
+            .Where(x => x.QrString == normalizedQrString)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        payment ??= throw new PaymentApiException(
+            StatusCodes.Status404NotFound,
+            "QA_QRIS_NOT_FOUND",
+            "QRIS Sandbox ini tidak dikenali untuk tenant yang sedang login.");
 
         if (payment.Status == PaymentConstants.StatusPaid)
         {
