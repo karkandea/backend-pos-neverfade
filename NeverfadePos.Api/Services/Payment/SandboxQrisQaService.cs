@@ -57,10 +57,13 @@ internal sealed class SandboxQrisQaService(
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        payment ??= throw new PaymentApiException(
-            StatusCodes.Status404NotFound,
-            "QA_QRIS_NOT_FOUND",
-            "QRIS Sandbox ini tidak dikenali untuk tenant yang sedang login.");
+        if (payment is null)
+        {
+            throw new PaymentApiException(
+                StatusCodes.Status404NotFound,
+                "QA_QRIS_NOT_FOUND",
+                "QRIS Sandbox ini tidak dikenali untuk tenant yang sedang login.");
+        }
 
         if (payment.Status == PaymentConstants.StatusPaid)
         {
