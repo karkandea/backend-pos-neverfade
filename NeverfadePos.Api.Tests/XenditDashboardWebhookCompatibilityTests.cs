@@ -13,18 +13,19 @@ namespace NeverfadePos.Api.Tests;
 public sealed class XenditDashboardWebhookCompatibilityTests
 {
     [Theory]
-    [InlineData("payment.succeeded")]
-    [InlineData("payment.failed")]
-    public async Task LegacyDashboardSample_IsAcknowledged(
-        string eventName)
+    [InlineData("payment.succeeded", "SUCCEEDED")]
+    [InlineData("payment.failed", "FAILED")]
+    public async Task DashboardSample_IsAcknowledged(
+        string eventName,
+        string status)
     {
         var service = new ThrowingPaymentService(
             new PaymentApiException(
                 StatusCodes.Status400BadRequest,
                 "XENDIT_WEBHOOK_INVALID",
-                "strict v3 validator rejected legacy sample"));
+                "strict v3 validator rejected dashboard sample"));
         var controller = new XenditWebhookController(service);
-        var webhook = CreateLegacySample(eventName);
+        var webhook = CreateDashboardSample(eventName, status);
 
         var result = await controller.Payment(
             "verified-by-service",
@@ -36,7 +37,7 @@ public sealed class XenditDashboardWebhookCompatibilityTests
     }
 
     [Fact]
-    public async Task LegacyDashboardSample_WithInvalidToken_RemainsRejected()
+    public async Task DashboardSample_WithInvalidToken_RemainsRejected()
     {
         var expected = new PaymentApiException(
             StatusCodes.Status401Unauthorized,
@@ -48,14 +49,14 @@ public sealed class XenditDashboardWebhookCompatibilityTests
         var actual = await Assert.ThrowsAsync<PaymentApiException>(() =>
             controller.Payment(
                 "wrong-token",
-                CreateLegacySample("payment.failed"),
+                CreateDashboardSample("payment.failed", "FAILED"),
                 CancellationToken.None));
 
         Assert.Same(expected, actual);
     }
 
     [Fact]
-    public async Task InvalidNonDashboardPayload_RemainsRejected()
+    public async Task LegacyLikePayload_FromNonSampleBusiness_RemainsRejected()
     {
         var expected = new PaymentApiException(
             StatusCodes.Status400BadRequest,
@@ -63,14 +64,8 @@ public sealed class XenditDashboardWebhookCompatibilityTests
             "invalid webhook");
         var service = new ThrowingPaymentService(expected);
         var controller = new XenditWebhookController(service);
-        var webhook = new XenditPaymentWebhookDto
-        {
-            Event = "payment.failed",
-            Data = new XenditPaymentWebhookDataDto
-            {
-                LegacyId = "sample-id"
-            }
-        };
+        var webhook = CreateDashboardSample("payment.failed", "FAILED");
+        webhook.BusinessId = "real_business_id";
 
         var actual = await Assert.ThrowsAsync<PaymentApiException>(() =>
             controller.Payment(
@@ -82,14 +77,41 @@ public sealed class XenditDashboardWebhookCompatibilityTests
     }
 
     [Fact]
-    public void LegacyDashboardFields_AreDeserializedWithoutAffectingV3Fields()
+    public async Task MalformedDashboardSample_RemainsRejected()
+    {
+        var expected = new PaymentApiException(
+            StatusCodes.Status400BadRequest,
+            "XENDIT_WEBHOOK_INVALID",
+            "invalid webhook");
+        var service = new ThrowingPaymentService(expected);
+        var controller = new XenditWebhookController(service);
+        var webhook = CreateDashboardSample("payment.failed", "FAILED");
+        webhook.Data.LegacyAmount = null;
+
+        var actual = await Assert.ThrowsAsync<PaymentApiException>(() =>
+            controller.Payment(
+                "verified-by-service",
+                webhook,
+                CancellationToken.None));
+
+        Assert.Same(expected, actual);
+    }
+
+    [Fact]
+    public void FullDashboardSample_DeserializesExpectedCompatibilityFields()
     {
         const string json = """
             {
-              "event": "payment.failed",
+              "event": "payment.succeeded",
+              "business_id": "sample_business_id",
+              "created": "2022-02-16T06:01:09.997108276Z",
               "data": {
-                "id": "dashboard-sample-payment",
-                "amount": 10000
+                "id": "pymt-2e9badf8-1473-4e8a-a1cf-d1e3214afc0f",
+                "amount": 15000,
+                "currency": "IDR",
+                "payment_request_id": "pr-df560c7d-b059-4789-ad2f-3cee5d8230a8",
+                "reference_id": "a5151a05-e84d-4cef-bb17-1ref3e7fb3a",
+                "status": "SUCCEEDED"
               }
             }
             """;
@@ -97,21 +119,37 @@ public sealed class XenditDashboardWebhookCompatibilityTests
         var webhook = JsonSerializer.Deserialize<XenditPaymentWebhookDto>(json);
 
         Assert.NotNull(webhook);
-        Assert.Equal("payment.failed", webhook.Event);
-        Assert.Equal("dashboard-sample-payment", webhook.Data.LegacyId);
-        Assert.Equal(10000m, webhook.Data.LegacyAmount);
+        Assert.Equal("payment.succeeded", webhook.Event);
+        Assert.Equal("sample_business_id", webhook.BusinessId);
+        Assert.Equal(
+            "pymt-2e9badf8-1473-4e8a-a1cf-d1e3214afc0f",
+            webhook.Data.LegacyId);
+        Assert.Equal(15000m, webhook.Data.LegacyAmount);
+        Assert.Equal(
+            "pr-df560c7d-b059-4789-ad2f-3cee5d8230a8",
+            webhook.Data.PaymentRequestId);
+        Assert.Equal(
+            "a5151a05-e84d-4cef-bb17-1ref3e7fb3a",
+            webhook.Data.ReferenceId);
+        Assert.Equal("SUCCEEDED", webhook.Data.Status);
+        Assert.Equal("IDR", webhook.Data.Currency);
         Assert.Equal(string.Empty, webhook.Data.PaymentId);
-        Assert.Equal(string.Empty, webhook.Data.PaymentRequestId);
     }
 
-    private static XenditPaymentWebhookDto CreateLegacySample(
-        string eventName) => new()
+    private static XenditPaymentWebhookDto CreateDashboardSample(
+        string eventName,
+        string status) => new()
     {
         Event = eventName,
+        BusinessId = "sample_business_id",
         Data = new XenditPaymentWebhookDataDto
         {
-            LegacyId = "dashboard-sample-payment",
-            LegacyAmount = 10000m
+            LegacyId = "pymt-dashboard-sample",
+            LegacyAmount = 15000m,
+            PaymentRequestId = "pr-dashboard-sample",
+            ReferenceId = "dashboard-reference",
+            Status = status,
+            Currency = "IDR"
         }
     };
 
