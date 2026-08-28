@@ -26,6 +26,7 @@ public sealed class XenditWebhookController(IPaymentService paymentService)
                 cancellationToken);
         }
         catch (PaymentApiException ex) when (
+            ex.StatusCode == StatusCodes.Status400BadRequest &&
             ex.Code == "XENDIT_WEBHOOK_INVALID" &&
             IsDashboardLegacySample(webhook))
         {
