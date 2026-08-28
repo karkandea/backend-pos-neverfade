@@ -70,10 +70,16 @@ public sealed class PaymentModeGateTests
     }
 
     [Fact]
-    public void Live_RequiresExplicitFlagAndProductionKey()
+    public void Live_RequiresExplicitFlagAllowlistAndProductionKey()
     {
+        var allowedTenantId = Guid.NewGuid();
+
         Assert.Throws<InvalidOperationException>(() => CreateGate(
-            new PaymentModeOptions { Mode = "Live" },
+            new PaymentModeOptions
+            {
+                Mode = "Live",
+                LiveAllowedTenantIds = allowedTenantId.ToString()
+            },
             "xnd_production_test_key"));
 
         Assert.Throws<InvalidOperationException>(() => CreateGate(
@@ -82,17 +88,46 @@ public sealed class PaymentModeGateTests
                 Mode = "Live",
                 LiveEnabled = true
             },
-            "xnd_development_test_key"));
+            "xnd_production_test_key"));
 
+        Assert.Throws<InvalidOperationException>(() => CreateGate(
+            new PaymentModeOptions
+            {
+                Mode = "Live",
+                LiveEnabled = true,
+                LiveAllowedTenantIds = allowedTenantId.ToString()
+            },
+            "xnd_development_test_key"));
+    }
+
+    [Fact]
+    public void Live_AllowsOnlyExplicitTenantId()
+    {
+        var allowedTenantId = Guid.NewGuid();
+        var otherTenantId = Guid.NewGuid();
         var gate = CreateGate(
             new PaymentModeOptions
             {
                 Mode = "Live",
-                LiveEnabled = true
+                LiveEnabled = true,
+                LiveAllowedTenantIds = allowedTenantId.ToString()
             },
             "xnd_production_test_key");
 
-        Assert.True(gate.GetCapabilities(Guid.NewGuid()).QrisEnabled);
+        gate.EnsureQrisAllowed(allowedTenantId);
+        var allowed = gate.GetCapabilities(allowedTenantId);
+        var blocked = gate.GetCapabilities(otherTenantId);
+        var exception = Assert.Throws<PaymentApiException>(
+            () => gate.EnsureQrisAllowed(otherTenantId));
+
+        Assert.True(allowed.QrisEnabled);
+        Assert.False(allowed.IsSandbox);
+        Assert.Equal("live", allowed.Mode);
+        Assert.False(blocked.QrisEnabled);
+        Assert.False(blocked.IsSandbox);
+        Assert.Equal(
+            "PAYMENT_LIVE_TENANT_NOT_ALLOWED",
+            exception.Code);
     }
 
     private static PaymentModeGate CreateGate(
