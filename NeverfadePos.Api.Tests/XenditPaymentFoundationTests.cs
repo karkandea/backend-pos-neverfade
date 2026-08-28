@@ -877,6 +877,15 @@ public sealed class XenditPaymentFoundationTests
                     services.AddSingleton<IPaymentModeGate>(
                         new AllowedSandboxPaymentModeGate());
                 }
+                else if (string.Equals(
+                    paymentMode,
+                    "Live",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    services.RemoveAll<IPaymentModeGate>();
+                    services.AddSingleton<IPaymentModeGate>(
+                        new AllowedLivePaymentModeGate());
+                }
 
                 services.AddDbContext<AppDbContext>(options =>
                     options
@@ -885,6 +894,22 @@ public sealed class XenditPaymentFoundationTests
                             InMemoryEventId.TransactionIgnoredWarning)));
                 services.AddSingleton<IXenditPaymentProvider>(Provider);
             });
+        }
+    }
+
+    private sealed class AllowedLivePaymentModeGate
+        : IPaymentModeGate
+    {
+        public PaymentCapabilitiesDto GetCapabilities(Guid tenantId) =>
+            new()
+            {
+                QrisEnabled = true,
+                Mode = "live",
+                IsSandbox = false
+            };
+
+        public void EnsureQrisAllowed(Guid tenantId)
+        {
         }
     }
 
