@@ -1,5 +1,6 @@
 using NeverfadePos.Api.DTOs.SharedPos;
 using NeverfadePos.Api.Entities;
+using AbsensiEntity = NeverfadePos.Api.Entities.Absensi;
 
 namespace NeverfadePos.Api.Services.Attendance;
 
@@ -38,7 +39,7 @@ internal static class AttendanceStatusRules
 
     public static SharedAttendanceStateDto BuildState(
         DateOnly date,
-        Absensi? attendance,
+        AbsensiEntity? attendance,
         EffectiveSchedule schedule,
         int graceMinutes,
         int absenceThresholdMinutes,
@@ -73,7 +74,7 @@ internal static class AttendanceStatusRules
 
     public static string ResolveStatus(
         DateOnly date,
-        Absensi? attendance,
+        AbsensiEntity? attendance,
         EffectiveSchedule schedule,
         int graceMinutes,
         int absenceThresholdMinutes,
