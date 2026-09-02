@@ -10,6 +10,10 @@ public sealed class PlatformTenantDto
 
     public string Status { get; set; } = string.Empty;
 
+    public string BusinessType { get; set; } = string.Empty;
+
+    public IReadOnlyList<string> Capabilities { get; set; } = [];
+
     public TenantOwnerSummaryDto? Owner { get; set; }
 
     public DateTime CreatedAt { get; set; }
