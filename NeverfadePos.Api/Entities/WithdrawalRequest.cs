@@ -13,9 +13,25 @@ public sealed class WithdrawalRequest : BaseEntity
 
     public Guid? ProcessedByPlatformUserId { get; set; }
 
+    public string DestinationBankName { get; set; } = string.Empty;
+
+    public string DestinationAccountLast4 { get; set; } = string.Empty;
+
+    public string DestinationAccountHolderName { get; set; } = string.Empty;
+
+    public string? TransferReference { get; set; }
+
+    public string? EvidenceMetadata { get; set; }
+
+    public string? RejectionReason { get; set; }
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    public DateTime? ProcessingStartedAt { get; set; }
+
     public DateTime? ProcessedAt { get; set; }
+
+    public DateTime? CancelledAt { get; set; }
 
     public Tenant? Tenant { get; set; }
 
