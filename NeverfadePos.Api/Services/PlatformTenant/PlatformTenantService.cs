@@ -7,6 +7,7 @@ using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.PlatformTenant;
 using NeverfadePos.Api.Entities;
+using TenantEntity = NeverfadePos.Api.Entities.Tenant;
 
 namespace NeverfadePos.Api.Services.PlatformTenant;
 
@@ -229,7 +230,7 @@ internal sealed class PlatformTenantService(
         return currentUser.UserId.Value;
     }
 
-    private async Task<Tenant> RequireTenantAsync(
+    private async Task<TenantEntity> RequireTenantAsync(
         Guid tenantId,
         CancellationToken cancellationToken)
     {
