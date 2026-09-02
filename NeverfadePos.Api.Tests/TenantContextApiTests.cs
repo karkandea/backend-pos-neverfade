@@ -17,6 +17,21 @@ namespace NeverfadePos.Api.Tests;
 
 public sealed class TenantContextApiTests
 {
+    private const string TenantKey =
+        "tenant-context-test-key-123456789012345678901234";
+    private const string PlatformKey =
+        "platform-context-test-key-1234567890123456789012";
+    private const string TenantIssuer =
+        "NeverfadePos.TenantContext.Test";
+    private const string TenantAudience =
+        "NeverfadePos.TenantContext.Client";
+    private const string PlatformIssuer =
+        "NeverfadePos.Platform.TenantContext.Test";
+    private const string PlatformAudience =
+        "NeverfadePos.Platform.TenantContext.Client";
+    private const string TestConnectionString =
+        "Host=localhost;Database=test;Username=test;Password=test";
+
     [Theory]
     [InlineData("owner", "owner123", "owner")]
     [InlineData("admin", "admin123", "admin")]
@@ -87,22 +102,29 @@ public sealed class TenantContextApiTests
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Development");
+            builder.UseSetting(
+                "ConnectionStrings:DefaultConnection",
+                TestConnectionString);
+            builder.UseSetting("Jwt:Key", TenantKey);
+            builder.UseSetting("Jwt:Issuer", TenantIssuer);
+            builder.UseSetting("Jwt:Audience", TenantAudience);
+            builder.UseSetting("PlatformJwt:Key", PlatformKey);
+            builder.UseSetting("PlatformJwt:Issuer", PlatformIssuer);
+            builder.UseSetting("PlatformJwt:Audience", PlatformAudience);
+            builder.UseSetting("Payments:Mode", "Disabled");
+            builder.UseSetting("PlatformBootstrap:Enabled", "false");
 
             builder.ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:DefaultConnection"] =
-                        "Host=localhost;Database=test;Username=test;Password=test",
-                    ["Jwt:Key"] =
-                        "tenant-context-test-key-123456789012345678901234",
-                    ["Jwt:Issuer"] = "NeverfadePos.TenantContext.Test",
-                    ["Jwt:Audience"] = "NeverfadePos.TenantContext.Client",
-                    ["PlatformJwt:Key"] =
-                        "platform-context-test-key-1234567890123456789012",
-                    ["PlatformJwt:Issuer"] =
-                        "NeverfadePos.Platform.TenantContext.Test",
-                    ["PlatformJwt:Audience"] =
-                        "NeverfadePos.Platform.TenantContext.Client",
+                        TestConnectionString,
+                    ["Jwt:Key"] = TenantKey,
+                    ["Jwt:Issuer"] = TenantIssuer,
+                    ["Jwt:Audience"] = TenantAudience,
+                    ["PlatformJwt:Key"] = PlatformKey,
+                    ["PlatformJwt:Issuer"] = PlatformIssuer,
+                    ["PlatformJwt:Audience"] = PlatformAudience,
                     ["Payments:Mode"] = "Disabled",
                     ["PlatformBootstrap:Enabled"] = "false"
                 }));
