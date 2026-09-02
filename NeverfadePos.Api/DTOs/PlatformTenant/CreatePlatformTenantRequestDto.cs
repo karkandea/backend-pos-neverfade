@@ -7,6 +7,8 @@ public sealed class CreatePlatformTenantRequestDto
 {
     public string NamaToko { get; set; } = string.Empty;
 
+    public string BusinessType { get; set; } = string.Empty;
+
     public CreatePlatformTenantOwnerRequestDto? Owner { get; set; }
 
     [JsonExtensionData]
