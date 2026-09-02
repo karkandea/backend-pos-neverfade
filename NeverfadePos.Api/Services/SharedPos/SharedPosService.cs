@@ -8,6 +8,7 @@ using NeverfadePos.Api.DTOs.SharedPos;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Services.Attendance;
 using Npgsql;
+using KaryawanEntity = NeverfadePos.Api.Entities.Karyawan;
 
 namespace NeverfadePos.Api.Services.SharedPos;
 
@@ -536,7 +537,7 @@ internal sealed class SharedPosService(
         CreatedAt = x.CreatedAt
     };
 
-    private static SharedEmployeeDto MapEmployee(Karyawan x) => new()
+    private static SharedEmployeeDto MapEmployee(KaryawanEntity x) => new()
     {
         Id = x.Id,
         Nama = x.Nama,
