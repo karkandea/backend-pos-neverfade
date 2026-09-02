@@ -10,7 +10,7 @@ public sealed class SharedPosDevice : BaseEntity
 
     public bool Active { get; set; } = true;
 
-    public Guid CreatedByUserId { get; set; }
+    public Guid? CreatedByUserId { get; set; }
 
     public DateTime? LastUsedAt { get; set; }
 
