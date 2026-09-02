@@ -1,3 +1,5 @@
+using NeverfadePos.Api.BusinessModes;
+
 namespace NeverfadePos.Api.Entities;
 
 public class Tenant
@@ -9,6 +11,8 @@ public class Tenant
     public string Slug { get; set; } = string.Empty;
 
     public string Status { get; set; } = "active";
+
+    public string BusinessType { get; set; } = BusinessTypes.GeneralRetail;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
