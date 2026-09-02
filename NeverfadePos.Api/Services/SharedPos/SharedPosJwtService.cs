@@ -13,13 +13,13 @@ public sealed record SharedPosJwtResult(
 
 public interface ISharedPosJwtService
 {
-    SharedPosJwtResult Generate(User user, Guid karyawanId);
+    SharedPosJwtResult Generate(User user, Guid karyawanId, Guid sharedSessionId);
 }
 
 internal sealed class SharedPosJwtService(IConfiguration configuration)
     : ISharedPosJwtService
 {
-    public SharedPosJwtResult Generate(User user, Guid karyawanId)
+    public SharedPosJwtResult Generate(User user, Guid karyawanId, Guid sharedSessionId)
     {
         var key = configuration["Jwt:Key"]
             ?? throw new InvalidOperationException("Jwt:Key missing.");
@@ -40,6 +40,7 @@ internal sealed class SharedPosJwtService(IConfiguration configuration)
             new(ClaimTypes.Role, user.Role),
             new("session_kind", "shared_pos"),
             new("employee_id", karyawanId.ToString()),
+            new("shared_session_id", sharedSessionId.ToString()),
             new("auth_time", new DateTimeOffset(now).ToUnixTimeSeconds().ToString())
         };
 
