@@ -28,7 +28,7 @@ internal sealed class SharedPosJwtService(IConfiguration configuration)
         var now = DateTime.UtcNow;
         var expires = now.AddMinutes(30);
         var requiresRecentReauth = user.Role is "owner" or "admin";
-        var reauthUntil = requiresRecentReauth ? now.AddMinutes(5) : null;
+        DateTime? reauthUntil = requiresRecentReauth ? now.AddMinutes(5) : null;
 
         var claims = new List<Claim>
         {
