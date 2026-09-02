@@ -62,7 +62,9 @@ cleanup() {
     wait "$BACKEND_PID" >/dev/null 2>&1 || true
   fi
 
-  docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
+  if command -v docker >/dev/null 2>&1; then
+    docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
+  fi
 
   if git -C "$BACKEND_REPO" rev-parse --git-dir >/dev/null 2>&1; then
     git -C "$BACKEND_REPO" worktree remove --force "$BACKEND_WORK" >/dev/null 2>&1 || true
@@ -162,7 +164,7 @@ wait_for_http_status() {
   local status=""
   local attempt
 
-  for attempt in $(seq 1 "$attempts"); do
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
     status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 "$url" 2>/dev/null || true)"
     if [ "$status" = "$expected" ]; then
       return 0
@@ -356,7 +358,7 @@ if [ -n "$EF_MODE" ] && [ "$BACKEND_BUILD_OK" -eq 1 ]; then
     --env "POSTGRES_DB=$MIGRATION_DB" \
     "$PG_IMAGE"; then
 
-    for attempt in $(seq 1 60); do
+    for ((attempt = 1; attempt <= 60; attempt++)); do
       if docker exec "$PG_CONTAINER" pg_isready \
         --username "$PG_USER" \
         --dbname "$MIGRATION_DB" >/dev/null 2>&1; then
