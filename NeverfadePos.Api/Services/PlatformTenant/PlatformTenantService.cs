@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
+using NeverfadePos.Api.BusinessModes;
 using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.PlatformTenant;
@@ -50,6 +51,62 @@ internal sealed class PlatformTenantService(
         CreatePlatformTenantRequestDto request,
         CancellationToken cancellationToken = default) =>
         provisioningService.CreateAsync(request, cancellationToken);
+
+    public async Task<PlatformTenantDto> UpdateBusinessProfileAsync(
+        Guid tenantId,
+        UpdateTenantBusinessProfileRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var actorId = await RequireActiveActorAsync(cancellationToken);
+        if (request.AdditionalProperties?.Count > 0 ||
+            !BusinessTypes.IsValid(request.BusinessType?.Trim()))
+        {
+            throw ValidationError();
+        }
+
+        var tenant = await RequireTenantAsync(tenantId, cancellationToken);
+        var nextBusinessType = request.BusinessType.Trim();
+
+        if (tenant.BusinessType == nextBusinessType)
+        {
+            return TenantProvisioningService.Map(
+                tenant,
+                await GetOwnerAsync(tenant.Id, cancellationToken));
+        }
+
+        var previousBusinessType = tenant.BusinessType;
+        var now = DateTime.UtcNow;
+
+        await using var transaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+        tenant.BusinessType = nextBusinessType;
+        tenant.UpdatedAt = now;
+        db.PlatformAuditEvents.Add(new PlatformAuditEvent
+        {
+            ActorPlatformUserId = actorId,
+            TenantId = tenant.Id,
+            EventType = "TENANT_BUSINESS_PROFILE_CHANGED",
+            CreatedAt = now,
+            Metadata = JsonSerializer.Serialize(new
+            {
+                previousBusinessType,
+                businessType = nextBusinessType,
+                capabilities = BusinessCapabilityPresets.Resolve(nextBusinessType)
+            })
+        });
+
+        await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return TenantProvisioningService.Map(
+            tenant,
+            await GetOwnerAsync(tenant.Id, cancellationToken));
+    }
 
     public async Task<PlatformTenantDto> ActivateAsync(
         Guid tenantId,
