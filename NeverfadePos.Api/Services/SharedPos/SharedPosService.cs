@@ -7,6 +7,7 @@ using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.SharedPos;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Services.Attendance;
+using Npgsql;
 
 namespace NeverfadePos.Api.Services.SharedPos;
 
@@ -30,6 +31,9 @@ internal sealed class SharedPosService(
     ISharedPosJwtService sharedPosJwtService)
     : ISharedPosService
 {
+    private const string AttendanceUniqueConstraint =
+        "IX_absensis_TenantId_KaryawanId_Tanggal";
+
     private static readonly TimeZoneInfo Wib = TimeZoneInfo.FindSystemTimeZoneById(
         OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Jakarta");
 
@@ -40,7 +44,14 @@ internal sealed class SharedPosService(
         return await db.SharedPosDevices
             .AsNoTracking()
             .OrderBy(x => x.Name)
-            .Select(x => MapDevice(x))
+            .Select(x => new SharedPosDeviceDto
+            {
+                Id = x.Id,
+                Name = x.Name,
+                Active = x.Active,
+                LastUsedAt = x.LastUsedAt,
+                CreatedAt = x.CreatedAt
+            })
             .ToListAsync(cancellationToken);
     }
 
@@ -280,14 +291,17 @@ internal sealed class SharedPosService(
         var seed = await FindSessionSeedAsync(sessionToken, cancellationToken);
         using var scope = trustedTenantScope.Begin(seed.TenantId, checkIn ? "shared-pos-checkin" : "shared-pos-checkout");
         var session = await GetActiveSessionAsync(seed.SessionId, cancellationToken);
+        var sessionEmployeeId = session.KaryawanId;
+        var sessionDeviceId = session.DeviceId;
+        var sessionUserId = session.UserId;
         var nowUtc = DateTime.UtcNow;
         var nowWib = ToWib(nowUtc);
         var date = DateOnly.FromDateTime(nowWib);
         var localTime = TimeOnly.FromDateTime(nowWib);
-        var schedule = await GetEffectiveScheduleAsync(session.KaryawanId, date, cancellationToken);
+        var schedule = await GetEffectiveScheduleAsync(sessionEmployeeId, date, cancellationToken);
 
         var attendance = await db.Absensis
-            .FirstOrDefaultAsync(x => x.KaryawanId == session.KaryawanId && x.Tanggal == date, cancellationToken);
+            .FirstOrDefaultAsync(x => x.KaryawanId == sessionEmployeeId && x.Tanggal == date, cancellationToken);
 
         if (checkIn)
         {
@@ -296,7 +310,7 @@ internal sealed class SharedPosService(
                 attendance ??= new Absensi
                 {
                     TenantId = seed.TenantId,
-                    KaryawanId = session.KaryawanId,
+                    KaryawanId = sessionEmployeeId,
                     Tanggal = date
                 };
 
@@ -324,37 +338,95 @@ internal sealed class SharedPosService(
             }
         }
 
+        var recordedAt = checkIn
+            ? attendance?.CheckIn?.ToString("HH:mm") ?? localTime.ToString("HH:mm")
+            : attendance?.CheckOut?.ToString("HH:mm") ?? localTime.ToString("HH:mm");
+
         session.RevokedAtUtc = nowUtc;
-        db.TenantAuditEvents.Add(new TenantAuditEvent
-        {
-            TenantId = seed.TenantId,
-            ActorKaryawanId = session.KaryawanId,
-            ActorUserId = session.UserId,
-            EventType = checkIn ? "ATTENDANCE_CHECKED_IN" : "ATTENDANCE_CHECKED_OUT",
-            Metadata = JsonSerializer.Serialize(new { deviceId = session.DeviceId, date = date.ToString("yyyy-MM-dd") })
-        });
+        AddPunchAudit(
+            seed.TenantId,
+            sessionEmployeeId,
+            sessionUserId,
+            sessionDeviceId,
+            date,
+            checkIn);
 
         try
         {
             await db.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException) when (checkIn)
+        catch (DbUpdateException exception)
+            when (checkIn && IsAttendanceUniqueViolation(exception))
         {
             db.ChangeTracker.Clear();
             var existing = await db.Absensis
                 .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.KaryawanId == session.KaryawanId && x.Tanggal == date, cancellationToken);
+                .FirstOrDefaultAsync(
+                    x => x.KaryawanId == sessionEmployeeId && x.Tanggal == date,
+                    cancellationToken);
+
             if (existing?.CheckIn is null)
                 throw;
+
+            recordedAt = existing.CheckIn.Value.ToString("HH:mm");
+
+            var persistedSession = await db.SharedPosSessions
+                .FirstOrDefaultAsync(x => x.Id == seed.SessionId, cancellationToken)
+                ?? throw SessionInvalid();
+
+            if (persistedSession.RevokedAtUtc is null)
+            {
+                persistedSession.RevokedAtUtc = nowUtc;
+                AddPunchAudit(
+                    seed.TenantId,
+                    sessionEmployeeId,
+                    sessionUserId,
+                    sessionDeviceId,
+                    date,
+                    checkIn: true);
+                await db.SaveChangesAsync(cancellationToken);
+            }
         }
 
-        var state = await GetAttendanceStateAsync(session.KaryawanId, date, nowUtc, cancellationToken);
+        var state = await GetAttendanceStateAsync(sessionEmployeeId, date, nowUtc, cancellationToken);
         return new SharedAttendanceResultDto
         {
             Ok = true,
-            RecordedAt = localTime.ToString("HH:mm"),
+            RecordedAt = recordedAt,
             Attendance = state
         };
+    }
+
+    private void AddPunchAudit(
+        Guid tenantId,
+        Guid karyawanId,
+        Guid? userId,
+        Guid deviceId,
+        DateOnly date,
+        bool checkIn)
+    {
+        db.TenantAuditEvents.Add(new TenantAuditEvent
+        {
+            TenantId = tenantId,
+            ActorKaryawanId = karyawanId,
+            ActorUserId = userId,
+            EventType = checkIn ? "ATTENDANCE_CHECKED_IN" : "ATTENDANCE_CHECKED_OUT",
+            Metadata = JsonSerializer.Serialize(new
+            {
+                deviceId,
+                date = date.ToString("yyyy-MM-dd")
+            })
+        });
+    }
+
+    private static bool IsAttendanceUniqueViolation(DbUpdateException exception)
+    {
+        return exception.InnerException is PostgresException postgres &&
+               postgres.SqlState == PostgresErrorCodes.UniqueViolation &&
+               string.Equals(
+                   postgres.ConstraintName,
+                   AttendanceUniqueConstraint,
+                   StringComparison.Ordinal);
     }
 
     private async Task RecordUnlockFailureAsync(SharedPosDevice device, CancellationToken cancellationToken)
