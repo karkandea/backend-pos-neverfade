@@ -18,7 +18,7 @@ is_port_busy() {
 FRONTEND_PORT="$DEFAULT_PORT"
 if is_port_busy "$FRONTEND_PORT"; then
   FRONTEND_PORT=""
-  for candidate in $(jot - 5274 5373 2>/dev/null || true); do
+  for ((candidate = 5274; candidate <= 5373; candidate++)); do
     if ! is_port_busy "$candidate"; then
       FRONTEND_PORT="$candidate"
       break
