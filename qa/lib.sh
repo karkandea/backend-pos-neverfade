@@ -98,7 +98,7 @@ qa_start_backend() {
   QA_BACKEND_PID=$!
   QA_STARTED_BACKEND=1
 
-  for attempt in $(seq 1 30); do
+  for ((attempt = 1; attempt <= 30; attempt++)); do
     status_value="$(
       curl \
         --silent \
