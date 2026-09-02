@@ -4,6 +4,7 @@ using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Attendance;
 using NeverfadePos.Api.Entities;
+using AbsensiEntity = NeverfadePos.Api.Entities.Absensi;
 
 namespace NeverfadePos.Api.Services.Attendance;
 
@@ -346,7 +347,7 @@ internal sealed class AttendanceManagementService(
         {
             if (!request.CheckIn.HasValue)
                 throw new ArgumentException("Correction tanpa check-in tidak memiliki perubahan.");
-            attendance = new Absensi
+            attendance = new AbsensiEntity
             {
                 TenantId = tenantId,
                 KaryawanId = request.KaryawanId,
@@ -438,7 +439,7 @@ internal sealed class AttendanceManagementService(
         return TimeZoneInfo.ConvertTimeToUtc(local, Wib);
     }
 
-    private static string SerializeAttendance(Absensi? attendance) =>
+    private static string SerializeAttendance(AbsensiEntity? attendance) =>
         attendance is null
             ? "null"
             : JsonSerializer.Serialize(new
