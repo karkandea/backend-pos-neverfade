@@ -26,6 +26,6 @@ public sealed class SharedPosDeviceConfiguration : IEntityTypeConfiguration<Shar
         builder.HasOne(x => x.CreatedByUser)
             .WithMany()
             .HasForeignKey(x => x.CreatedByUserId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
