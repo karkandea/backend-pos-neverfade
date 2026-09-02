@@ -14,7 +14,7 @@ public sealed class PlatformAuditEventConfiguration
             "platform_audit_events",
             table => table.HasCheckConstraint(
                 "CK_platform_audit_events_EventType",
-                "\"EventType\" IN ('TENANT_PROVISIONED', 'TENANT_ACTIVATED', 'TENANT_SUSPENDED')"));
+                "\"EventType\" IN ('TENANT_PROVISIONED', 'TENANT_ACTIVATED', 'TENANT_SUSPENDED', 'TENANT_BUSINESS_PROFILE_CHANGED')"));
 
         builder.HasKey(x => x.Id);
 
