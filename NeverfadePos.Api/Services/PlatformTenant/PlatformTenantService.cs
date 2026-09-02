@@ -59,14 +59,15 @@ internal sealed class PlatformTenantService(
         CancellationToken cancellationToken = default)
     {
         var actorId = await RequireActiveActorAsync(cancellationToken);
+        var requestedBusinessType = request.BusinessType?.Trim();
         if (request.AdditionalProperties?.Count > 0 ||
-            !BusinessTypes.IsValid(request.BusinessType?.Trim()))
+            !BusinessTypes.IsValid(requestedBusinessType))
         {
             throw ValidationError();
         }
 
         var tenant = await RequireTenantAsync(tenantId, cancellationToken);
-        var nextBusinessType = request.BusinessType.Trim();
+        var nextBusinessType = requestedBusinessType!;
 
         if (tenant.BusinessType == nextBusinessType)
         {
