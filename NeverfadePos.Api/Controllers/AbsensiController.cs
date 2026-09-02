@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NeverfadePos.Api.Auth;
+using NeverfadePos.Api.BusinessModes;
 using NeverfadePos.Api.DTOs.Absensi;
 using NeverfadePos.Api.Services.Absensi;
 
@@ -7,6 +9,7 @@ namespace NeverfadePos.Api.Controllers;
 
 [ApiController]
 [Authorize(Roles = "owner,admin")]
+[RequireCapability(TenantCapabilities.Attendance)]
 [Route("api/absensi")]
 public sealed class AbsensiController(
     IAbsensiService absensiService)
