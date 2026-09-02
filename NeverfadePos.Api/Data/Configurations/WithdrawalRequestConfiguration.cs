@@ -18,7 +18,7 @@ public sealed class WithdrawalRequestConfiguration
                     "\"Amount\" > 0");
                 table.HasCheckConstraint(
                     "CK_withdrawal_requests_Status",
-                    "\"Status\" IN ('requested', 'paid', 'rejected')");
+                    "\"Status\" IN ('requested', 'processing', 'paid', 'rejected', 'cancelled')");
             });
 
         builder.HasKey(x => x.Id);
@@ -29,6 +29,12 @@ public sealed class WithdrawalRequestConfiguration
 
         builder.Property(x => x.Amount).HasPrecision(18, 2);
         builder.Property(x => x.Status).HasMaxLength(20).IsRequired();
+        builder.Property(x => x.DestinationBankName).HasMaxLength(100).IsRequired();
+        builder.Property(x => x.DestinationAccountLast4).HasMaxLength(4).IsRequired();
+        builder.Property(x => x.DestinationAccountHolderName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.TransferReference).HasMaxLength(200);
+        builder.Property(x => x.EvidenceMetadata).HasMaxLength(2000);
+        builder.Property(x => x.RejectionReason).HasMaxLength(500);
 
         builder.HasOne(x => x.Tenant)
             .WithMany(x => x.WithdrawalRequests)
