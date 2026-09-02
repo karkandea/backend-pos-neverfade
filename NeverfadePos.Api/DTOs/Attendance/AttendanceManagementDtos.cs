@@ -21,11 +21,8 @@ public sealed class WeeklyScheduleDayDto
 {
     [Range(0, 6)]
     public int DayOfWeek { get; set; }
-
     public bool IsWorkingDay { get; set; }
-
     public TimeOnly? StartTime { get; set; }
-
     public TimeOnly? EndTime { get; set; }
 }
 
@@ -81,6 +78,11 @@ public sealed class AttendanceDashboardRowDto
     public string? ScheduleEnd { get; set; }
     public string? CheckIn { get; set; }
     public string? CheckOut { get; set; }
+    public bool IsScheduled { get; set; }
+    public bool IsPresent { get; set; }
+    public bool IsLate { get; set; }
+    public bool IsWorking { get; set; }
+    public bool MissingCheckout { get; set; }
     public bool OutsideSchedule { get; set; }
     public string? ExceptionType { get; set; }
     public string? ExceptionNote { get; set; }
@@ -108,7 +110,8 @@ public sealed class AttendanceCorrectionDto
 {
     public Guid Id { get; set; }
     public Guid AbsensiId { get; set; }
-    public Guid CorrectedByUserId { get; set; }
+    public Guid? CorrectedByUserId { get; set; }
+    public string CorrectedByUsername { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
     public string BeforeData { get; set; } = string.Empty;
     public string AfterData { get; set; } = string.Empty;
