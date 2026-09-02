@@ -59,7 +59,12 @@ public sealed class SharedPosSessionMiddleware(RequestDelegate next)
             return;
         }
 
-        if (RequiresRecentReauth(context.Request.Path) &&
+        var role = context.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ??
+                   context.User.FindFirst("role")?.Value;
+        var privilegedSharedUser = role is "owner" or "admin";
+
+        if (privilegedSharedUser &&
+            RequiresRecentReauth(context.Request.Path) &&
             !HasRecentReauth(context.User, now))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
@@ -77,8 +82,9 @@ public sealed class SharedPosSessionMiddleware(RequestDelegate next)
 
     private static bool RequiresRecentReauth(PathString path)
     {
+        var value = path.Value ?? string.Empty;
         return SensitivePathPrefixes.Any(prefix =>
-            path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase));
+            value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool HasRecentReauth(System.Security.Claims.ClaimsPrincipal user, DateTime now)
