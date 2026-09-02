@@ -61,7 +61,7 @@ dotnet build "$PROJECT" --configuration Release --no-restore
 step "Backend tests before migration generation"
 dotnet test "$TEST_PROJECT" --configuration Release
 
-if find NeverfadePos.Api/Migrations -maxdepth 1 -type f -name "*_${MIGRATION_NAME}*.cs" | grep -q .; then
+if ls NeverfadePos.Api/Migrations/*_"$MIGRATION_NAME"*.cs >/dev/null 2>&1; then
   fail "Migration $MIGRATION_NAME sudah ada. Jangan generate duplikat."
 fi
 
@@ -72,12 +72,13 @@ dotnet ef migrations add "$MIGRATION_NAME" \
   --output-dir Migrations
 
 step "Verify generator touched migrations only"
-mapfile -t changed_files < <(git status --porcelain | sed -E 's/^.. //')
-if [[ ${#changed_files[@]} -eq 0 ]]; then
+changed_files="$(git status --porcelain | sed -E 's/^.. //')"
+if [[ -z "$changed_files" ]]; then
   fail "EF tidak menghasilkan perubahan migration."
 fi
 
-for file in "${changed_files[@]}"; do
+while IFS= read -r file; do
+  [[ -n "$file" ]] || continue
   case "$file" in
     NeverfadePos.Api/Migrations/*) ;;
     *)
@@ -85,11 +86,11 @@ for file in "${changed_files[@]}"; do
       fail "EF checkpoint mengubah file di luar NeverfadePos.Api/Migrations: $file"
       ;;
   esac
-done
+done <<< "$changed_files"
 
 git status --short
 
-generated_main="$(find NeverfadePos.Api/Migrations -maxdepth 1 -type f -name "*_${MIGRATION_NAME}.cs" ! -name '*.Designer.cs' | sort | tail -1)"
+generated_main="$(ls NeverfadePos.Api/Migrations/*_"$MIGRATION_NAME".cs 2>/dev/null | grep -v '\.Designer\.cs$' | sort | tail -1 || true)"
 [[ -n "$generated_main" ]] || fail "File migration utama tidak ditemukan."
 
 generated_designer="${generated_main%.cs}.Designer.cs"
