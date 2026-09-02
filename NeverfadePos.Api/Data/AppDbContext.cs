@@ -26,6 +26,11 @@ public class AppDbContext : DbContext
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Karyawan> Karyawans => Set<Karyawan>();
     public DbSet<Absensi> Absensis => Set<Absensi>();
+    public DbSet<EmployeeWeeklySchedule> EmployeeWeeklySchedules => Set<EmployeeWeeklySchedule>();
+    public DbSet<EmployeeScheduleException> EmployeeScheduleExceptions => Set<EmployeeScheduleException>();
+    public DbSet<AttendanceCorrection> AttendanceCorrections => Set<AttendanceCorrection>();
+    public DbSet<AttendancePolicy> AttendancePolicies => Set<AttendancePolicy>();
+    public DbSet<SharedPosDevice> SharedPosDevices => Set<SharedPosDevice>();
     public DbSet<StockHistory> StockHistories => Set<StockHistory>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<TransactionItem> TransactionItems => Set<TransactionItem>();
@@ -33,15 +38,14 @@ public class AppDbContext : DbContext
     public DbSet<PaymentLedgerEntry> PaymentLedgerEntries => Set<PaymentLedgerEntry>();
     public DbSet<PaymentWebhookEvent> PaymentWebhookEvents => Set<PaymentWebhookEvent>();
     public DbSet<PaymentRoute> PaymentRoutes => Set<PaymentRoute>();
+    public DbSet<WithdrawalBankAccount> WithdrawalBankAccounts => Set<WithdrawalBankAccount>();
     public DbSet<WithdrawalRequest> WithdrawalRequests => Set<WithdrawalRequest>();
     public DbSet<WithdrawalRoute> WithdrawalRoutes => Set<WithdrawalRoute>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
-
         ApplyTenantFilters(modelBuilder);
     }
 
@@ -55,7 +59,6 @@ public class AppDbContext : DbContext
             var method = typeof(AppDbContext)
                 .GetMethod(nameof(SetTenantFilter), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
                 .MakeGenericMethod(entityType.ClrType);
-
             method.Invoke(this, new object[] { modelBuilder });
         }
     }
@@ -64,34 +67,25 @@ public class AppDbContext : DbContext
         where TEntity : BaseEntity
     {
         builder.Entity<TEntity>()
-            .HasQueryFilter(x =>
-                HasTargetTenant &&
-                x.TenantId == TargetTenantId);
+            .HasQueryFilter(x => HasTargetTenant && x.TenantId == TargetTenantId);
     }
 
     public override int SaveChanges()
     {
         ValidateTenantWrites();
-
         return base.SaveChanges();
     }
 
-    public override int SaveChanges(
-        bool acceptAllChangesOnSuccess)
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         ValidateTenantWrites();
-
-        return base.SaveChanges(
-            acceptAllChangesOnSuccess);
+        return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
-    public override Task<int> SaveChangesAsync(
-        CancellationToken cancellationToken = default)
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         ValidateTenantWrites();
-
-        return base.SaveChangesAsync(
-            cancellationToken);
+        return base.SaveChangesAsync(cancellationToken);
     }
 
     public override Task<int> SaveChangesAsync(
@@ -99,34 +93,20 @@ public class AppDbContext : DbContext
         CancellationToken cancellationToken = default)
     {
         ValidateTenantWrites();
-
-        return base.SaveChangesAsync(
-            acceptAllChangesOnSuccess,
-            cancellationToken);
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
-    private bool HasTargetTenant =>
-        _tenantExecutionContext?.HasTargetTenant == true;
-
-    private Guid TargetTenantId =>
-        _tenantExecutionContext?.TargetTenantId ??
-        Guid.Empty;
+    private bool HasTargetTenant => _tenantExecutionContext?.HasTargetTenant == true;
+    private Guid TargetTenantId => _tenantExecutionContext?.TargetTenantId ?? Guid.Empty;
 
     private void ValidateTenantWrites()
     {
         var entries = ChangeTracker
             .Entries<BaseEntity>()
-            .Where(x =>
-                x.State is
-                    EntityState.Added or
-                    EntityState.Modified or
-                    EntityState.Deleted)
+            .Where(x => x.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
             .ToList();
 
-        if (entries.Count == 0)
-        {
-            return;
-        }
+        if (entries.Count == 0) return;
 
         if (!HasTargetTenant)
         {
@@ -135,35 +115,21 @@ public class AppDbContext : DbContext
         }
 
         var targetTenantId = TargetTenantId;
-
         foreach (var entry in entries)
         {
-            var tenantProperty = entry.Property(
-                nameof(BaseEntity.TenantId));
-
-            if (entry.State == EntityState.Added &&
-                entry.Entity.TenantId == Guid.Empty)
-            {
+            var tenantProperty = entry.Property(nameof(BaseEntity.TenantId));
+            if (entry.State == EntityState.Added && entry.Entity.TenantId == Guid.Empty)
                 entry.Entity.TenantId = targetTenantId;
-            }
 
-            if (entry.State != EntityState.Added &&
-                tenantProperty.IsModified)
-            {
-                throw new InvalidOperationException(
-                    "TenantId cannot be changed.");
-            }
+            if (entry.State != EntityState.Added && tenantProperty.IsModified)
+                throw new InvalidOperationException("TenantId cannot be changed.");
 
             if (entry.Entity.TenantId != targetTenantId)
-            {
                 throw new InvalidOperationException(
                     "Tenant-scoped entity does not match the active tenant execution context.");
-            }
 
             if (entry.State != EntityState.Added &&
-                entry.OriginalValues.GetValue<Guid>(
-                    nameof(BaseEntity.TenantId)) !=
-                targetTenantId)
+                entry.OriginalValues.GetValue<Guid>(nameof(BaseEntity.TenantId)) != targetTenantId)
             {
                 throw new InvalidOperationException(
                     "Tenant-scoped entity does not belong to the active tenant execution context.");
