@@ -6,7 +6,9 @@ public sealed class AttendanceCorrection : BaseEntity
 {
     public Guid AbsensiId { get; set; }
 
-    public Guid CorrectedByUserId { get; set; }
+    public Guid? CorrectedByUserId { get; set; }
+
+    public string CorrectedByUsername { get; set; } = string.Empty;
 
     public string Reason { get; set; } = string.Empty;
 
