@@ -32,6 +32,6 @@ public sealed class SharedPosSessionConfiguration : IEntityTypeConfiguration<Sha
         builder.HasOne(x => x.User)
             .WithMany()
             .HasForeignKey(x => x.UserId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
