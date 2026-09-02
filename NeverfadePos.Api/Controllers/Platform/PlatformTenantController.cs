@@ -37,6 +37,16 @@ public sealed class PlatformTenantController(
             request,
             cancellationToken));
 
+    [HttpPut("{tenantId:guid}/business-profile")]
+    public async Task<ActionResult<PlatformTenantDto>> UpdateBusinessProfile(
+        Guid tenantId,
+        UpdateTenantBusinessProfileRequestDto request,
+        CancellationToken cancellationToken) =>
+        Ok(await tenantService.UpdateBusinessProfileAsync(
+            tenantId,
+            request,
+            cancellationToken));
+
     [HttpPost("{tenantId:guid}/activate")]
     public async Task<ActionResult<PlatformTenantDto>> Activate(
         Guid tenantId,
