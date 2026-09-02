@@ -34,6 +34,9 @@ public sealed class ExceptionMiddleware(
             PlatformApiException apiException =>
                 apiException.StatusCode,
 
+            TenantApiException apiException =>
+                apiException.StatusCode,
+
             PaymentApiException apiException =>
                 apiException.StatusCode,
 
@@ -84,6 +87,12 @@ public sealed class ExceptionMiddleware(
                 {
                     code = platformException.Code,
                     message = platformException.Message
+                }
+                : exception is TenantApiException tenantException
+                ? new
+                {
+                    code = tenantException.Code,
+                    message = tenantException.Message
                 }
                 : exception is PaymentApiException paymentException
                 ? new
