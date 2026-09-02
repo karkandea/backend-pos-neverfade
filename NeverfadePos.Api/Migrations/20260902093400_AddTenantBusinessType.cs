@@ -29,10 +29,28 @@ public partial class AddTenantBusinessType : Migration
             name: "IX_tenants_BusinessType",
             table: "tenants",
             column: "BusinessType");
+
+        migrationBuilder.DropCheckConstraint(
+            name: "CK_platform_audit_events_EventType",
+            table: "platform_audit_events");
+
+        migrationBuilder.AddCheckConstraint(
+            name: "CK_platform_audit_events_EventType",
+            table: "platform_audit_events",
+            sql: "\"EventType\" IN ('TENANT_PROVISIONED', 'TENANT_ACTIVATED', 'TENANT_SUSPENDED', 'TENANT_BUSINESS_PROFILE_CHANGED')");
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
+        migrationBuilder.DropCheckConstraint(
+            name: "CK_platform_audit_events_EventType",
+            table: "platform_audit_events");
+
+        migrationBuilder.AddCheckConstraint(
+            name: "CK_platform_audit_events_EventType",
+            table: "platform_audit_events",
+            sql: "\"EventType\" IN ('TENANT_PROVISIONED', 'TENANT_ACTIVATED', 'TENANT_SUSPENDED')");
+
         migrationBuilder.DropIndex(
             name: "IX_tenants_BusinessType",
             table: "tenants");
