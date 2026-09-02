@@ -5,6 +5,16 @@ namespace NeverfadePos.Api.Middleware;
 
 public sealed class SharedPosSessionMiddleware(RequestDelegate next)
 {
+    private static readonly string[] SensitivePathPrefixes =
+    [
+        "/api/finance",
+        "/api/users",
+        "/api/settings",
+        "/api/karyawan",
+        "/api/attendance",
+        "/api/shared-pos/devices"
+    ];
+
     public async Task InvokeAsync(HttpContext context, AppDbContext db)
     {
         if (!string.Equals(
@@ -49,7 +59,33 @@ public sealed class SharedPosSessionMiddleware(RequestDelegate next)
             return;
         }
 
+        if (RequiresRecentReauth(context.Request.Path) &&
+            !HasRecentReauth(context.User, now))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                code = "SHARED_DEVICE_REAUTH_REQUIRED",
+                message = "Masukkan PIN owner/admin lagi untuk melanjutkan tindakan sensitif ini."
+            });
+            return;
+        }
+
         await next(context);
+    }
+
+    private static bool RequiresRecentReauth(PathString path)
+    {
+        return SensitivePathPrefixes.Any(prefix =>
+            path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool HasRecentReauth(System.Security.Claims.ClaimsPrincipal user, DateTime now)
+    {
+        var raw = user.FindFirst("shared_reauth_until")?.Value;
+        return long.TryParse(raw, out var unix) &&
+               DateTimeOffset.FromUnixTimeSeconds(unix) > new DateTimeOffset(now);
     }
 
     private static async Task RejectAsync(HttpContext context)
