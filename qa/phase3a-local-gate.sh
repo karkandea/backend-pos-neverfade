@@ -229,7 +229,7 @@ log "Frontend    : $FRONTEND_REPO"
 log "Results     : $RESULT_ROOT"
 log "Supabase    : NOT USED"
 
-for command_name in git dotnet docker node npm curl jq lsof openssl python3; do
+for command_name in git dotnet docker node npm curl jq lsof openssl uuidgen; do
   require_command "$command_name"
 done
 
