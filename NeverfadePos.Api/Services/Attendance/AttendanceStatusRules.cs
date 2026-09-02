@@ -79,13 +79,20 @@ internal static class AttendanceStatusRules
         int absenceThresholdMinutes,
         DateTime nowWib)
     {
+        var currentDate = DateOnly.FromDateTime(nowWib);
+
         if (attendance?.CheckIn is not null)
         {
             if (attendance.CheckOut is null)
             {
+                if (currentDate > date)
+                {
+                    return "missing_checkout";
+                }
+
                 if (schedule.IsScheduled &&
                     schedule.EndTime.HasValue &&
-                    DateOnly.FromDateTime(nowWib) >= date &&
+                    currentDate == date &&
                     TimeOnly.FromDateTime(nowWib) > schedule.EndTime.Value)
                 {
                     return "missing_checkout";
@@ -111,12 +118,12 @@ internal static class AttendanceStatusRules
             return "off";
         }
 
-        if (DateOnly.FromDateTime(nowWib) < date)
+        if (currentDate < date)
         {
             return "scheduled";
         }
 
-        if (DateOnly.FromDateTime(nowWib) > date)
+        if (currentDate > date)
         {
             return "absent";
         }
