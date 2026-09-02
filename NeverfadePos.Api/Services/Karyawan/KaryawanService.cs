@@ -20,9 +20,7 @@ public sealed class KaryawanService(
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            query = query.Where(x =>
-                x.Nama.Contains(search) ||
-                x.Jabatan.Contains(search));
+            query = query.Where(x => x.Nama.Contains(search) || x.Jabatan.Contains(search));
         }
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -30,15 +28,10 @@ public sealed class KaryawanService(
             query = query.Where(x => x.Status == status);
         }
 
-        return await query
-            .OrderBy(x => x.Nama)
-            .Select(MapToDto())
-            .ToListAsync(cancellationToken);
+        return await query.OrderBy(x => x.Nama).Select(MapToDto()).ToListAsync(cancellationToken);
     }
 
-    public async Task<KaryawanDto> GetByIdAsync(
-        Guid id,
-        CancellationToken cancellationToken = default)
+    public async Task<KaryawanDto> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var entity = await db.Karyawans
             .AsNoTracking()
@@ -46,13 +39,10 @@ public sealed class KaryawanService(
             .Select(MapToDto())
             .FirstOrDefaultAsync(cancellationToken);
 
-        return entity
-            ?? throw new KeyNotFoundException("Karyawan tidak ditemukan.");
+        return entity ?? throw new KeyNotFoundException("Karyawan tidak ditemukan.");
     }
 
-    public async Task<KaryawanDto> CreateAsync(
-        CreateKaryawanDto request,
-        CancellationToken cancellationToken = default)
+    public async Task<KaryawanDto> CreateAsync(CreateKaryawanDto request, CancellationToken cancellationToken = default)
     {
         if (!currentUser.TenantId.HasValue)
             throw new UnauthorizedAccessException();
@@ -71,16 +61,11 @@ public sealed class KaryawanService(
         };
 
         db.Karyawans.Add(entity);
-
         await db.SaveChangesAsync(cancellationToken);
-
         return await GetByIdAsync(entity.Id, cancellationToken);
     }
 
-    public async Task<KaryawanDto> UpdateAsync(
-        Guid id,
-        UpdateKaryawanDto request,
-        CancellationToken cancellationToken = default)
+    public async Task<KaryawanDto> UpdateAsync(Guid id, UpdateKaryawanDto request, CancellationToken cancellationToken = default)
     {
         var entity = await db.Karyawans
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
@@ -95,21 +80,34 @@ public sealed class KaryawanService(
         entity.Status = request.Status;
         entity.Catatan = request.Catatan;
 
-        await db.SaveChangesAsync(cancellationToken);
+        if (!string.Equals(entity.Status, "aktif", StringComparison.OrdinalIgnoreCase))
+        {
+            entity.PinHash = null;
+            entity.PinFingerprint = null;
+            entity.PinUpdatedAt = null;
 
+            var sessions = await db.SharedPosSessions
+                .Where(x => x.KaryawanId == entity.Id && x.RevokedAtUtc == null)
+                .ToListAsync(cancellationToken);
+
+            var now = DateTime.UtcNow;
+            foreach (var session in sessions)
+            {
+                session.RevokedAtUtc = now;
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
         return await GetByIdAsync(id, cancellationToken);
     }
 
-    public async Task DeleteAsync(
-        Guid id,
-        CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var entity = await db.Karyawans
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
             ?? throw new KeyNotFoundException("Karyawan tidak ditemukan.");
 
         db.Karyawans.Remove(entity);
-
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -125,7 +123,11 @@ public sealed class KaryawanService(
             Gaji = x.Gaji,
             TanggalMasuk = x.TanggalMasuk,
             Status = x.Status,
-            Catatan = x.Catatan
+            Catatan = x.Catatan,
+            UserId = x.UserId,
+            LinkedUsername = x.User == null ? null : x.User.Username,
+            HasPin = x.PinHash != null,
+            PinUpdatedAt = x.PinUpdatedAt
         };
     }
 }
