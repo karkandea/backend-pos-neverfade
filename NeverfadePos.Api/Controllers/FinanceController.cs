@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NeverfadePos.Api.Auth;
+using NeverfadePos.Api.BusinessModes;
 using NeverfadePos.Api.DTOs.Finance;
 using NeverfadePos.Api.Services.Finance;
 
@@ -8,6 +10,7 @@ namespace NeverfadePos.Api.Controllers;
 [ApiController]
 [Route("api/finance")]
 [Authorize(Roles = "owner")]
+[RequireCapability(TenantCapabilities.FinanceWithdrawal)]
 public sealed class FinanceController(
     ITenantFinanceService financeService)
     : ControllerBase
