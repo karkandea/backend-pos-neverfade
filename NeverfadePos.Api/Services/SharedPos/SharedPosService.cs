@@ -9,6 +9,7 @@ using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Services.Attendance;
 using Npgsql;
 using KaryawanEntity = NeverfadePos.Api.Entities.Karyawan;
+using AbsensiEntity = NeverfadePos.Api.Entities.Absensi;
 
 namespace NeverfadePos.Api.Services.SharedPos;
 
@@ -308,7 +309,7 @@ internal sealed class SharedPosService(
         {
             if (attendance?.CheckIn is null)
             {
-                attendance ??= new Absensi
+                attendance ??= new AbsensiEntity
                 {
                     TenantId = seed.TenantId,
                     KaryawanId = sessionEmployeeId,
