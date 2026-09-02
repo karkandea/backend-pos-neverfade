@@ -48,6 +48,10 @@ public sealed class PlatformTenantControlPlaneTests
         Assert.NotNull(created);
         Assert.Equal("active", created.Status);
         Assert.Equal("kedai-enak", created.Slug);
+        Assert.Equal("general_retail", created.BusinessType);
+        Assert.Contains("core_pos", created.Capabilities);
+        Assert.Contains("finance_withdrawal", created.Capabilities);
+        Assert.DoesNotContain("table_orders", created.Capabilities);
         Assert.Equal("owner", await GetOwnerRoleAsync(factory, created.Id));
 
         await using var scope = factory.Services.CreateAsyncScope();
@@ -76,6 +80,66 @@ public sealed class PlatformTenantControlPlaneTests
         Assert.Equal("TENANT_PROVISIONED", audit.EventType);
         Assert.Equal(actor.Id, audit.ActorPlatformUserId);
         Assert.Null(audit.Metadata);
+    }
+
+    [Fact]
+    public async Task Provisioning_RejectsMissingOrInvalidBusinessType()
+    {
+        await using var factory = new ControlPlaneFactory();
+        var (client, _) = await CreatePlatformClientAsync(factory);
+
+        var missing = await client.PostAsJsonAsync(
+            "/api/platform/tenants",
+            new
+            {
+                namaToko = "No Type Shop",
+                owner = new
+                {
+                    nama = "Owner No Type",
+                    username = "owner.no.type",
+                    password = "InitialPassword123!"
+                }
+            });
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        Assert.Contains("VALIDATION_ERROR", await missing.Content.ReadAsStringAsync());
+
+        var invalid = await client.PostAsJsonAsync(
+            "/api/platform/tenants",
+            CreateRequest("Invalid Type Shop", "owner.invalid.type", "hotel"));
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Contains("VALIDATION_ERROR", await invalid.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task BusinessProfileUpdate_ChangesCapabilitiesAndCreatesAudit()
+    {
+        await using var factory = new ControlPlaneFactory();
+        var (client, actor) = await CreatePlatformClientAsync(factory);
+        var tenant = await CreateTenantAsync(
+            client,
+            "Business Mode Shop",
+            "owner.business.mode");
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/platform/tenants/{tenant.Id}/business-profile",
+            new { businessType = "food_beverage" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = await response.Content.ReadFromJsonAsync<PlatformTenantDto>();
+        Assert.NotNull(updated);
+        Assert.Equal("food_beverage", updated.BusinessType);
+        Assert.Contains("table_orders", updated.Capabilities);
+        Assert.Contains("kitchen_queue", updated.Capabilities);
+        Assert.DoesNotContain("work_orders", updated.Capabilities);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var audit = await db.PlatformAuditEvents.SingleAsync(
+            x => x.TenantId == tenant.Id &&
+                 x.EventType == "TENANT_BUSINESS_PROFILE_CHANGED");
+        Assert.Equal(actor.Id, audit.ActorPlatformUserId);
+        Assert.Contains("general_retail", audit.Metadata);
+        Assert.Contains("food_beverage", audit.Metadata);
     }
 
     [Fact]
@@ -269,10 +333,14 @@ public sealed class PlatformTenantControlPlaneTests
             await rejectedExistingSession.Content.ReadAsStringAsync());
     }
 
-    private static object CreateRequest(string shop, string username) =>
+    private static object CreateRequest(
+        string shop,
+        string username,
+        string businessType = "general_retail") =>
         new
         {
             namaToko = shop,
+            businessType,
             owner = new
             {
                 nama = $"Owner {shop}",
