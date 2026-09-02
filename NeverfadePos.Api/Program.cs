@@ -21,6 +21,7 @@ using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Payments;
 using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Services.StockHistory;
+using NeverfadePos.Api.Services.Tenant;
 using NeverfadePos.Api.Services.Transaction;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -189,6 +190,12 @@ builder.Services.AddScoped<ITrustedTenantExecutionScope>(
     services =>
         services.GetRequiredService<
             TenantExecutionContext>());
+
+builder.Services.AddScoped<TenantContextService>();
+builder.Services.AddScoped<ITenantContextService>(
+    services => services.GetRequiredService<TenantContextService>());
+builder.Services.AddScoped<ITenantCapabilityService>(
+    services => services.GetRequiredService<TenantContextService>());
 
 builder.Services.AddScoped<
     IJwtService,
