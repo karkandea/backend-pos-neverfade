@@ -13,7 +13,8 @@ public class AbsensiConfiguration : IEntityTypeConfiguration<Absensi>
         builder.HasKey(x => x.Id);
 
         builder.HasIndex(x => x.TenantId);
-        builder.HasIndex(x => new { x.TenantId, x.KaryawanId, x.Tanggal });
+        builder.HasIndex(x => new { x.TenantId, x.KaryawanId, x.Tanggal })
+            .IsUnique();
 
         builder.HasOne(x => x.Tenant)
             .WithMany(x => x.Absensis)
