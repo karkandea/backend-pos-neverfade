@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
-using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Attendance;
 using NeverfadePos.Api.Entities;
@@ -29,6 +28,9 @@ internal sealed class AttendanceManagementService(
     private static readonly TimeZoneInfo Wib = TimeZoneInfo.FindSystemTimeZoneById(
         OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Jakarta");
 
+    private static readonly HashSet<string> ExceptionTypes =
+        new(["leave", "holiday", "changed_shift", "off"], StringComparer.Ordinal);
+
     public async Task<AttendancePolicyDto> GetPolicyAsync(CancellationToken cancellationToken = default)
     {
         var policy = await db.AttendancePolicies.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
@@ -43,6 +45,9 @@ internal sealed class AttendanceManagementService(
         UpdateAttendancePolicyRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        if (request.GraceMinutes is < 0 or > 180 || request.AbsenceThresholdMinutes is < 1 or > 720)
+            throw new ArgumentException("Kebijakan absensi di luar rentang yang diizinkan.");
+
         var tenantId = currentUser.TenantId ?? throw new UnauthorizedAccessException();
         var policy = await db.AttendancePolicies.FirstOrDefaultAsync(cancellationToken);
         if (policy is null)
@@ -95,8 +100,12 @@ internal sealed class AttendanceManagementService(
         CancellationToken cancellationToken = default)
     {
         await EnsureEmployeeAsync(karyawanId, cancellationToken);
-        if (request.Days.Select(x => x.DayOfWeek).Distinct().Count() != request.Days.Count)
-            throw new ArgumentException("Hari jadwal tidak boleh duplikat.");
+        if (request.Days.Count > 7 ||
+            request.Days.Any(x => x.DayOfWeek is < 0 or > 6) ||
+            request.Days.Select(x => x.DayOfWeek).Distinct().Count() != request.Days.Count)
+        {
+            throw new ArgumentException("Hari jadwal tidak valid atau duplikat.");
+        }
 
         foreach (var day in request.Days)
             ValidateScheduleDay(day.IsWorkingDay, day.StartTime, day.EndTime);
@@ -131,6 +140,9 @@ internal sealed class AttendanceManagementService(
         DateOnly? to,
         CancellationToken cancellationToken = default)
     {
+        if (from.HasValue && to.HasValue && from > to)
+            throw new ArgumentException("Tanggal awal tidak boleh setelah tanggal akhir.");
+
         var query = db.EmployeeScheduleExceptions.AsNoTracking();
         if (karyawanId.HasValue)
             query = query.Where(x => x.KaryawanId == karyawanId.Value);
@@ -160,6 +172,8 @@ internal sealed class AttendanceManagementService(
         CancellationToken cancellationToken = default)
     {
         await EnsureEmployeeAsync(request.KaryawanId, cancellationToken);
+        if (!ExceptionTypes.Contains(request.Type))
+            throw new ArgumentException("Tipe pengecualian jadwal tidak valid.");
         if (request.Type == "changed_shift")
             ValidateScheduleDay(true, request.StartTime, request.EndTime);
 
@@ -245,7 +259,7 @@ internal sealed class AttendanceManagementService(
         var policy = await GetPolicyAsync(cancellationToken);
         var nowWib = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Wib);
 
-        var rows = new List<AttendanceDashboardRowDto>();
+        var allRows = new List<AttendanceDashboardRowDto>();
         foreach (var employee in employees)
         {
             var weekly = schedules.FirstOrDefault(x => x.KaryawanId == employee.Id);
@@ -260,7 +274,13 @@ internal sealed class AttendanceManagementService(
                 policy.AbsenceThresholdMinutes,
                 nowWib);
 
-            rows.Add(new AttendanceDashboardRowDto
+            var isPresent = attendance?.CheckIn is not null;
+            var isLate = isPresent && effective.IsScheduled && effective.StartTime.HasValue &&
+                attendance!.CheckIn!.Value > effective.StartTime.Value.AddMinutes(policy.GraceMinutes);
+            var isWorking = isPresent && attendance!.CheckOut is null;
+            var missingCheckout = state.Status == "missing_checkout";
+
+            allRows.Add(new AttendanceDashboardRowDto
             {
                 KaryawanId = employee.Id,
                 KaryawanNama = employee.Nama,
@@ -270,28 +290,35 @@ internal sealed class AttendanceManagementService(
                 ScheduleEnd = state.ScheduleEnd,
                 CheckIn = state.CheckIn,
                 CheckOut = state.CheckOut,
+                IsScheduled = effective.IsScheduled,
+                IsPresent = isPresent,
+                IsLate = isLate,
+                IsWorking = isWorking,
+                MissingCheckout = missingCheckout,
                 OutsideSchedule = state.OutsideSchedule,
                 ExceptionType = state.ExceptionType,
                 ExceptionNote = exception?.Note
             });
         }
 
-        if (!string.IsNullOrWhiteSpace(status))
-            rows = rows.Where(x => string.Equals(x.Status, status, StringComparison.OrdinalIgnoreCase)).ToList();
+        var summary = new AttendanceDashboardSummaryDto
+        {
+            Scheduled = allRows.Count(x => x.IsScheduled),
+            Present = allRows.Count(x => x.IsPresent),
+            Late = allRows.Count(x => x.IsLate),
+            Absent = allRows.Count(x => x.Status == "absent"),
+            Working = allRows.Count(x => x.IsWorking),
+            MissingCheckout = allRows.Count(x => x.MissingCheckout)
+        };
 
-        var summaryRows = rows;
+        var rows = string.IsNullOrWhiteSpace(status)
+            ? allRows
+            : allRows.Where(x => string.Equals(x.Status, status, StringComparison.OrdinalIgnoreCase)).ToList();
+
         return new AttendanceDashboardDto
         {
             Date = date.ToString("yyyy-MM-dd"),
-            Summary = new AttendanceDashboardSummaryDto
-            {
-                Scheduled = summaryRows.Count(x => x.Status == "scheduled"),
-                Present = summaryRows.Count(x => x.Status == "present"),
-                Late = summaryRows.Count(x => x.Status == "late"),
-                Absent = summaryRows.Count(x => x.Status == "absent"),
-                Working = summaryRows.Count(x => x.Status == "working"),
-                MissingCheckout = summaryRows.Count(x => x.Status == "missing_checkout")
-            },
+            Summary = summary,
             Employees = rows
         };
     }
@@ -303,11 +330,12 @@ internal sealed class AttendanceManagementService(
         await EnsureEmployeeAsync(request.KaryawanId, cancellationToken);
         if (request.CheckOut.HasValue && !request.CheckIn.HasValue)
             throw new ArgumentException("Check-out tidak boleh ada tanpa check-in.");
-        if (request.CheckIn.HasValue && request.CheckOut.HasValue && request.CheckOut <= request.CheckIn)
+        if (request.CheckIn.HasValue && request.CheckOut.HasValue && request.CheckOut.Value <= request.CheckIn.Value)
             throw new ArgumentException("Check-out harus setelah check-in.");
 
         var tenantId = currentUser.TenantId ?? throw new UnauthorizedAccessException();
         var actorUserId = currentUser.UserId ?? throw new UnauthorizedAccessException();
+        var actorUsername = currentUser.Username ?? currentUser.Nama ?? "unknown";
         var attendance = await db.Absensis
             .FirstOrDefaultAsync(
                 x => x.KaryawanId == request.KaryawanId && x.Tanggal == request.Date,
@@ -350,6 +378,7 @@ internal sealed class AttendanceManagementService(
             TenantId = tenantId,
             AbsensiId = attendance.Id,
             CorrectedByUserId = actorUserId,
+            CorrectedByUsername = actorUsername,
             Reason = request.Reason.Trim(),
             BeforeData = beforeData,
             AfterData = SerializeAttendance(attendance)
@@ -368,6 +397,7 @@ internal sealed class AttendanceManagementService(
             Id = correction.Id,
             AbsensiId = correction.AbsensiId,
             CorrectedByUserId = correction.CorrectedByUserId,
+            CorrectedByUsername = correction.CorrectedByUsername,
             Reason = correction.Reason,
             BeforeData = correction.BeforeData,
             AfterData = correction.AfterData,
