@@ -26,6 +26,13 @@ public class AppDbContext : DbContext
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Karyawan> Karyawans => Set<Karyawan>();
     public DbSet<Absensi> Absensis => Set<Absensi>();
+    public DbSet<EmployeeWeeklySchedule> EmployeeWeeklySchedules => Set<EmployeeWeeklySchedule>();
+    public DbSet<EmployeeScheduleException> EmployeeScheduleExceptions => Set<EmployeeScheduleException>();
+    public DbSet<AttendanceCorrection> AttendanceCorrections => Set<AttendanceCorrection>();
+    public DbSet<AttendancePolicy> AttendancePolicies => Set<AttendancePolicy>();
+    public DbSet<SharedPosDevice> SharedPosDevices => Set<SharedPosDevice>();
+    public DbSet<SharedPosSession> SharedPosSessions => Set<SharedPosSession>();
+    public DbSet<TenantAuditEvent> TenantAuditEvents => Set<TenantAuditEvent>();
     public DbSet<StockHistory> StockHistories => Set<StockHistory>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<TransactionItem> TransactionItems => Set<TransactionItem>();
