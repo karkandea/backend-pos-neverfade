@@ -8,6 +8,7 @@ using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.PlatformTenant;
 using NeverfadePos.Api.Entities;
+using TenantEntity = NeverfadePos.Api.Entities.Tenant;
 
 namespace NeverfadePos.Api.Services.PlatformTenant;
 
@@ -50,7 +51,7 @@ internal sealed class TenantProvisioningService(
             ? await db.Database.BeginTransactionAsync(cancellationToken)
             : null;
 
-        var tenant = new Tenant
+        var tenant = new TenantEntity
         {
             Id = tenantId,
             NamaToko = namaToko,
@@ -291,7 +292,7 @@ internal sealed class TenantProvisioningService(
             "Data tenant tidak valid.");
 
     internal static PlatformTenantDto Map(
-        Tenant tenant,
+        TenantEntity tenant,
         User? owner)
     {
         return new PlatformTenantDto
