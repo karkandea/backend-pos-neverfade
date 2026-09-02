@@ -53,14 +53,15 @@ public sealed class TenantContextApiTests
         Assert.Equal("general_retail", context.BusinessType);
         Assert.Equal(expectedRole, context.Role);
         Assert.Equal(
-            [
+            new[]
+            {
                 "core_pos",
                 "inventory",
                 "customers",
                 "reports",
                 "attendance",
                 "finance_withdrawal"
-            ],
+            },
             context.Capabilities);
         Assert.DoesNotContain("table_orders", context.Capabilities);
         Assert.DoesNotContain("work_orders", context.Capabilities);
