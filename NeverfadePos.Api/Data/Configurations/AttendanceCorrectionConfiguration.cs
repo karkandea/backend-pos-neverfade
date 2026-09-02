@@ -11,6 +11,7 @@ public sealed class AttendanceCorrectionConfiguration : IEntityTypeConfiguration
         builder.ToTable("attendance_corrections");
         builder.HasKey(x => x.Id);
         builder.HasIndex(x => new { x.TenantId, x.AbsensiId, x.CreatedAt });
+        builder.Property(x => x.CorrectedByUsername).HasMaxLength(100).IsRequired();
         builder.Property(x => x.Reason).HasMaxLength(500).IsRequired();
         builder.Property(x => x.BeforeData).HasMaxLength(2000).IsRequired();
         builder.Property(x => x.AfterData).HasMaxLength(2000).IsRequired();
@@ -28,6 +29,6 @@ public sealed class AttendanceCorrectionConfiguration : IEntityTypeConfiguration
         builder.HasOne(x => x.CorrectedByUser)
             .WithMany()
             .HasForeignKey(x => x.CorrectedByUserId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
