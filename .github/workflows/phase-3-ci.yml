@@ -1,0 +1,25 @@
+name: Phase 3 Backend CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore NeverfadePos.slnx
+      - name: Build
+        run: dotnet build NeverfadePos.slnx --configuration Release --no-restore
+      - name: Test
+        run: dotnet test NeverfadePos.Api.Tests/NeverfadePos.Api.Tests.csproj --configuration Release --no-build --logger "console;verbosity=normal"
