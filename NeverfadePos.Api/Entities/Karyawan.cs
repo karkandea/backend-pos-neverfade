@@ -13,7 +13,23 @@ public class Karyawan : BaseEntity
     public string Status { get; set; } = "aktif";
     public string Catatan { get; set; } = string.Empty;
 
+    public Guid? UserId { get; set; }
+
+    public string? PinHash { get; set; }
+
+    public string? PinFingerprint { get; set; }
+
+    public DateTime? PinUpdatedAt { get; set; }
+
     public Tenant? Tenant { get; set; }
 
+    public User? User { get; set; }
+
     public ICollection<Absensi> Absensis { get; set; } = new List<Absensi>();
+
+    public ICollection<EmployeeWeeklySchedule> WeeklySchedules { get; set; } = new List<EmployeeWeeklySchedule>();
+
+    public ICollection<EmployeeScheduleException> ScheduleExceptions { get; set; } = new List<EmployeeScheduleException>();
+
+    public ICollection<SharedPosSession> SharedPosSessions { get; set; } = new List<SharedPosSession>();
 }
