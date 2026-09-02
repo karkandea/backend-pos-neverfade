@@ -22,11 +22,11 @@ public sealed class TenantAuditEventConfiguration : IEntityTypeConfiguration<Ten
         builder.HasOne(x => x.ActorUser)
             .WithMany()
             .HasForeignKey(x => x.ActorUserId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasOne(x => x.ActorKaryawan)
             .WithMany()
             .HasForeignKey(x => x.ActorKaryawanId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
