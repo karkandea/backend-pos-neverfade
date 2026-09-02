@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NeverfadePos.Api.Auth;
+using NeverfadePos.Api.BusinessModes;
 using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.PlatformTenant;
@@ -25,6 +26,7 @@ internal sealed class TenantProvisioningService(
         var tenantId = Guid.NewGuid();
         var now = DateTime.UtcNow;
         var namaToko = request.NamaToko.Trim();
+        var businessType = request.BusinessType.Trim();
         var ownerRequest = request.Owner!;
         var ownerNama = ownerRequest.Nama.Trim();
         var ownerUsername = ownerRequest.Username.Trim();
@@ -54,6 +56,7 @@ internal sealed class TenantProvisioningService(
             NamaToko = namaToko,
             Slug = slug,
             Status = "active",
+            BusinessType = businessType,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -161,6 +164,7 @@ internal sealed class TenantProvisioningService(
             request.Owner.AdditionalProperties?.Count > 0 ||
             string.IsNullOrWhiteSpace(request.NamaToko) ||
             request.NamaToko.Trim().Length > 200 ||
+            !BusinessTypes.IsValid(request.BusinessType?.Trim()) ||
             string.IsNullOrWhiteSpace(request.Owner.Nama) ||
             request.Owner.Nama.Trim().Length > 200 ||
             string.IsNullOrWhiteSpace(request.Owner.Username) ||
@@ -296,6 +300,8 @@ internal sealed class TenantProvisioningService(
             NamaToko = tenant.NamaToko,
             Slug = tenant.Slug,
             Status = tenant.Status,
+            BusinessType = tenant.BusinessType,
+            Capabilities = BusinessCapabilityPresets.Resolve(tenant.BusinessType),
             Owner = owner is null
                 ? null
                 : new TenantOwnerSummaryDto
