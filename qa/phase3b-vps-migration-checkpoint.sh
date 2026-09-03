@@ -8,6 +8,7 @@ PROJECT="NeverfadePos.Api/NeverfadePos.Api.csproj"
 TEST_PROJECT="NeverfadePos.Api.Tests/NeverfadePos.Api.Tests.csproj"
 MIGRATION_NAME="AddSharedDeviceAttendance"
 SDK_IMAGE="mcr.microsoft.com/dotnet/sdk:10.0"
+NUGET_VOLUME="neverfade-phase3b-nuget"
 
 fail() {
   printf '\n[FAIL] %s\n' "$1" >&2
@@ -47,17 +48,25 @@ if find NeverfadePos.Api/Migrations -type f -name "*_${MIGRATION_NAME}.cs" | gre
   fail "Migration $MIGRATION_NAME sudah ada. Jangan generate duplikat."
 fi
 
+step "Prepare isolated persistent NuGet cache"
+docker volume inspect "$NUGET_VOLUME" >/dev/null 2>&1 || docker volume create "$NUGET_VOLUME" >/dev/null
+
 run_dotnet() {
   docker run --rm \
     --cpus=1 \
     --memory=2g \
     -e DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     -e DOTNET_NOLOGO=1 \
-    -e NUGET_PACKAGES=/tmp/nuget \
+    -e NUGET_PACKAGES=/nuget/packages \
     -e 'ConnectionStrings__DefaultConnection=Host=127.0.0.1;Port=55432;Database=neverfade_phase3b_design;Username=postgres;Password=postgres' \
+    -v "$NUGET_VOLUME:/nuget/packages" \
     -v "$REPO:/workspace" \
     -w /workspace \
     "$SDK_IMAGE" bash -lc "$1"
+}
+
+run_ef() {
+  run_dotnet "dotnet restore '$PROJECT' && rm -rf /tmp/dotnet-tools && dotnet tool install --tool-path /tmp/dotnet-tools dotnet-ef --version 10.0.9 >/tmp/dotnet-ef-install.log && /tmp/dotnet-tools/dotnet-ef $1 --project '$PROJECT' --startup-project '$PROJECT'"
 }
 
 step "Release build before migration generation"
@@ -67,7 +76,7 @@ step "Backend tests before migration generation"
 run_dotnet "dotnet test '$TEST_PROJECT' --configuration Release"
 
 step "Generate EF migration + designer + model snapshot"
-run_dotnet "dotnet tool install --global dotnet-ef --version 10.0.9 >/tmp/dotnet-ef-install.log && export PATH=\"\$PATH:/root/.dotnet/tools\" && dotnet ef migrations add '$MIGRATION_NAME' --project '$PROJECT' --startup-project '$PROJECT' --output-dir Migrations"
+run_ef "migrations add '$MIGRATION_NAME' --output-dir Migrations"
 
 step "Verify EF generator changed migrations only"
 changed_files="$(git status --porcelain | awk '{print substr($0,4)}')"
@@ -93,13 +102,13 @@ generated_designer="${generated_main%.cs}.Designer.cs"
 [[ -f NeverfadePos.Api/Migrations/AppDbContextModelSnapshot.cs ]] || fail "Model snapshot tidak ditemukan."
 
 step "Release build after migration generation"
-run_dotnet "dotnet build '$PROJECT' --configuration Release"
+run_dotnet "dotnet restore '$PROJECT' && dotnet build '$PROJECT' --configuration Release --no-restore"
 
 step "Backend tests after migration generation"
 run_dotnet "dotnet test '$TEST_PROJECT' --configuration Release"
 
 step "Verify model has no pending changes"
-run_dotnet "dotnet tool install --global dotnet-ef --version 10.0.9 >/tmp/dotnet-ef-install.log && export PATH=\"\$PATH:/root/.dotnet/tools\" && dotnet ef migrations has-pending-model-changes --project '$PROJECT' --startup-project '$PROJECT'"
+run_ef "migrations has-pending-model-changes"
 
 step "Commit generated migration artifacts locally"
 git add NeverfadePos.Api/Migrations
@@ -128,6 +137,7 @@ fi
 printf '\nFINAL PHASE 3B VPS MIGRATION CHECKPOINT: PASS\n'
 printf 'Backend HEAD : %s\n' "$(git rev-parse HEAD)"
 printf 'Migration    : %s\n' "$generated_main"
+printf 'NuGet cache  : isolated Docker volume %s\n' "$NUGET_VOLUME"
 printf 'Push         : %s\n' "$PUSH_STATUS"
 printf 'Production   : NOT MODIFIED\n'
 printf 'Supabase     : NOT USED\n'
