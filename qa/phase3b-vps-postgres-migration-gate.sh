@@ -92,11 +92,11 @@ run_dotnet() {
 }
 
 run_ef() {
-  run_dotnet "dotnet restore '$PROJECT' >/dev/null && dotnet tool install --global dotnet-ef --version 10.0.9 >/dev/null 2>&1 || true; export PATH=\"\$PATH:/root/.dotnet/tools\"; dotnet ef $* --project '$PROJECT' --startup-project '$PROJECT'"
+  run_dotnet "dotnet restore '$PROJECT' >/dev/null && dotnet tool install --global dotnet-ef --version 10.0.9 >/dev/null && export PATH=\"\$PATH:/root/.dotnet/tools\" && dotnet ef $* --project '$PROJECT' --startup-project '$PROJECT'"
 }
 
 psql_exec() {
-  docker exec -e PGPASSWORD="$DB_PASSWORD" "$PG_CONTAINER" \
+  docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$PG_CONTAINER" \
     psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" "$@"
 }
 
