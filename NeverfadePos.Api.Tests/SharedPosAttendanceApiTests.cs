@@ -40,7 +40,7 @@ public sealed class SharedPosAttendanceApiTests
         await LoginOwnerAsync(ownerClient);
 
         var employees = await ownerClient.GetFromJsonAsync<List<KaryawanDto>>("/api/karyawan");
-        var employee = Assert.Single(employees!.Where(x => x.Nama == "Dewi Safitri"));
+        var employee = Assert.Single(employees!, x => x.Nama == "Dewi Safitri");
 
         var accessResponse = await ownerClient.PutAsJsonAsync(
             $"/api/karyawan/{employee.Id}/shared-access",
@@ -99,7 +99,7 @@ public sealed class SharedPosAttendanceApiTests
         await LoginOwnerAsync(ownerClient);
 
         var employees = await ownerClient.GetFromJsonAsync<List<KaryawanDto>>("/api/karyawan");
-        var employee = Assert.Single(employees!.Where(x => x.Nama == "Dewi Safitri"));
+        var employee = Assert.Single(employees!, x => x.Nama == "Dewi Safitri");
         var accessResponse = await ownerClient.PutAsJsonAsync(
             $"/api/karyawan/{employee.Id}/shared-access",
             new { pin = "4321", clearPin = false, clearUserLink = false });
@@ -141,7 +141,7 @@ public sealed class SharedPosAttendanceApiTests
         await LoginOwnerAsync(ownerClient);
 
         var employees = await ownerClient.GetFromJsonAsync<List<KaryawanDto>>("/api/karyawan");
-        var employee = Assert.Single(employees!.Where(x => x.Nama == "Dewi Safitri"));
+        var employee = Assert.Single(employees!, x => x.Nama == "Dewi Safitri");
         var accessResponse = await ownerClient.PutAsJsonAsync(
             $"/api/karyawan/{employee.Id}/shared-access",
             new { pin = "4321", clearPin = false, clearUserLink = false });
