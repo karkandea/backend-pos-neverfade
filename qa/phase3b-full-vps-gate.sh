@@ -213,7 +213,7 @@ docker run --rm \
     set -euo pipefail
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y -qq curl jq openssl uuid-runtime ca-certificates postgresql-client >/dev/null
+    apt-get install -y -qq curl jq openssl uuid-runtime ca-certificates postgresql-client python3 git >/dev/null
     failures=0
     for regression in \
       qa/product-stock-regression.sh \
