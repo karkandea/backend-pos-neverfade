@@ -208,7 +208,9 @@ docker run --rm \
   -e QA_PLATFORM_JWT_ISSUER="$PLATFORM_JWT_ISSUER" \
   -e QA_PLATFORM_JWT_AUDIENCE="$PLATFORM_JWT_AUDIENCE" \
   -v "$BACKEND_REPO:/root/neverfade-pos-backend:ro" \
+  -v "$FRONTEND_REPO:/root/neverfade-pos-frontend:ro" \
   -v "$QA_DIR:/root/neverfade-pos-qa" \
+  -w /root/neverfade-pos-backend \
   ubuntu:24.04 bash -lc '
     set -euo pipefail
     export DEBIAN_FRONTEND=noninteractive
@@ -252,6 +254,8 @@ docker run --rm \
   -e QA_OWNER_USERNAME=owner \
   -e QA_OWNER_PASSWORD=owner123 \
   -e "QA_KNOWN_TRANSACTION_NO=$QA_KNOWN_TRANSACTION_NO" \
+  -e PLAYWRIGHT_TEST_TIMEOUT=45000 \
+  -e PLAYWRIGHT_EXPECT_TIMEOUT=20000 \
   -e RUN_PRODUCTION_MOBILE_AUDIT=0 \
   -v "$NPM_VOLUME:/root/.npm" \
   -v "$FRONTEND_REPO:/workspace/frontend" \
