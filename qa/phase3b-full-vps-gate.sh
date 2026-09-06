@@ -88,22 +88,42 @@ printf 'Frontend HEAD: %s\n' "$FRONTEND_HEAD"
 step "Start disposable PostgreSQL on loopback only"
 docker run -d --rm \
   --name "$PG_CONTAINER" \
-  --cpus=0.5 \
-  --memory=512m \
+  --cpus=0.75 \
+  --memory=768m \
   -p "127.0.0.1:$PG_PORT:5432" \
   -e POSTGRES_DB="$DB_NAME" \
   -e POSTGRES_USER="$DB_USER" \
   -e POSTGRES_PASSWORD="$DB_PASSWORD" \
   "$PG_IMAGE" >/dev/null
 
-for _ in $(seq 1 60); do
-  if docker exec "$PG_CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
+pg_ready=0
+for _ in $(seq 1 120); do
+  if ! docker inspect "$PG_CONTAINER" >/dev/null 2>&1; then
+    printf '\n[POSTGRES] Container disappeared before readiness.\n' >&2
     break
   fi
+
+  running="$(docker inspect -f '{{.State.Running}}' "$PG_CONTAINER" 2>/dev/null || true)"
+  if [[ "$running" != "true" ]]; then
+    printf '\n[POSTGRES] Container stopped before readiness.\n' >&2
+    break
+  fi
+
+  if docker exec "$PG_CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
+    pg_ready=1
+    break
+  fi
+
   sleep 1
 done
-docker exec "$PG_CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1 \
-  || fail "Disposable PostgreSQL tidak ready"
+
+if [[ "$pg_ready" -ne 1 ]]; then
+  printf '\n===== DISPOSABLE POSTGRES DIAGNOSTICS =====\n' >&2
+  docker inspect "$PG_CONTAINER" --format 'Status={{.State.Status}} ExitCode={{.State.ExitCode}} OOMKilled={{.State.OOMKilled}} Error={{.State.Error}}' 2>&1 || true
+  docker logs "$PG_CONTAINER" 2>&1 | tail -160 || true
+  printf '==========================================\n' >&2
+  fail "Disposable PostgreSQL tidak ready"
+fi
 
 docker volume inspect "$NUGET_VOLUME" >/dev/null 2>&1 || docker volume create "$NUGET_VOLUME" >/dev/null
 docker volume inspect "$NPM_VOLUME" >/dev/null 2>&1 || docker volume create "$NPM_VOLUME" >/dev/null
