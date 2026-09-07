@@ -14,7 +14,7 @@ public sealed class PlatformAuditEventConfiguration
             "platform_audit_events",
             table => table.HasCheckConstraint(
                 "CK_platform_audit_events_EventType",
-                "\"EventType\" IN ('TENANT_PROVISIONED', 'TENANT_ACTIVATED', 'TENANT_SUSPENDED', 'TENANT_BUSINESS_PROFILE_CHANGED')"));
+                "\"EventType\" IN ('TENANT_PROVISIONED', 'TENANT_ACTIVATED', 'TENANT_SUSPENDED', 'TENANT_BUSINESS_PROFILE_CHANGED', 'WITHDRAWAL_BANK_ACCOUNT_VERIFIED', 'WITHDRAWAL_BANK_ACCOUNT_REJECTED', 'WITHDRAWAL_PROCESSING_STARTED', 'WITHDRAWAL_PAID', 'WITHDRAWAL_REJECTED')"));
 
         builder.HasKey(x => x.Id);
 
