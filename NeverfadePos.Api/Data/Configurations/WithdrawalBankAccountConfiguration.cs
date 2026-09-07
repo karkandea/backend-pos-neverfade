@@ -32,6 +32,8 @@ public sealed class WithdrawalBankAccountConfiguration
         builder.Property(x => x.VerificationStatus)
             .HasMaxLength(20)
             .IsRequired();
+        builder.Property(x => x.VerificationNote)
+            .HasMaxLength(500);
 
         builder.HasOne(x => x.Tenant)
             .WithMany(x => x.WithdrawalBankAccounts)
