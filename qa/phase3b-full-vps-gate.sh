@@ -2,6 +2,9 @@
 set -Eeuo pipefail
 
 BRANCH="feat/phase-3b-shared-device-attendance"
+ALLOW_OFFLINE_GIT="${NF_PHASE3B_ALLOW_OFFLINE_GIT:-0}"
+EXPECTED_BACKEND_HEAD="${NF_PHASE3B_EXPECTED_BACKEND_HEAD:-}"
+EXPECTED_FRONTEND_HEAD="${NF_PHASE3B_EXPECTED_FRONTEND_HEAD:-}"
 BACKEND_REPO="${NF_PHASE3B_BACKEND_REPO:-$HOME/neverfade-phase3b/backend}"
 FRONTEND_REPO="${NF_PHASE3B_FRONTEND_REPO:-$HOME/neverfade-phase3b/frontend}"
 SDK_IMAGE="mcr.microsoft.com/dotnet/sdk:10.0"
@@ -70,15 +73,51 @@ for port in "$PG_PORT" "$API_PORT" "$FRONTEND_PORT"; do
 done
 
 step "Verify and sync exact Phase 3B branches"
-for repo in "$BACKEND_REPO" "$FRONTEND_REPO"; do
+
+sync_repo() {
+  local repo="$1"
+  local expected_head="$2"
+  local label="$3"
+
   if [[ -n "$(git -C "$repo" status --porcelain)" ]]; then
     git -C "$repo" status --short
-    fail "Repo harus clean: $repo"
+    fail "$label repo harus clean: $repo"
   fi
-  git -C "$repo" fetch origin "$BRANCH"
+
   git -C "$repo" switch "$BRANCH"
-  git -C "$repo" pull --ff-only origin "$BRANCH"
-done
+
+  fetch_ok=0
+  for attempt in 1 2 3; do
+    if timeout 35 git -C "$repo" fetch origin "$BRANCH"; then
+      fetch_ok=1
+      break
+    fi
+    printf '[WARN] %s GitHub fetch attempt %s/3 gagal.\n' "$label" "$attempt" >&2
+    sleep 2
+  done
+
+  if [[ "$fetch_ok" -eq 1 ]]; then
+    git -C "$repo" merge --ff-only "origin/$BRANCH"
+  else
+    [[ "$ALLOW_OFFLINE_GIT" == "1" ]] || fail "$label tidak dapat sync dari GitHub"
+    [[ -n "$expected_head" ]] || fail "$label expected HEAD wajib saat offline fallback"
+
+    local current_head
+    current_head="$(git -C "$repo" rev-parse HEAD)"
+    [[ "$current_head" == "$expected_head" ]] || fail "$label local HEAD $current_head != expected $expected_head"
+
+    printf '[WARN] %s GitHub unreachable; memakai exact clean local HEAD %s.\n' "$label" "$current_head" >&2
+  fi
+
+  if [[ -n "$expected_head" ]]; then
+    local final_head
+    final_head="$(git -C "$repo" rev-parse HEAD)"
+    [[ "$final_head" == "$expected_head" ]] || fail "$label HEAD $final_head != expected $expected_head"
+  fi
+}
+
+sync_repo "$BACKEND_REPO" "$EXPECTED_BACKEND_HEAD" "Backend"
+sync_repo "$FRONTEND_REPO" "$EXPECTED_FRONTEND_HEAD" "Frontend"
 
 BACKEND_HEAD="$(git -C "$BACKEND_REPO" rev-parse HEAD)"
 FRONTEND_HEAD="$(git -C "$FRONTEND_REPO" rev-parse HEAD)"
