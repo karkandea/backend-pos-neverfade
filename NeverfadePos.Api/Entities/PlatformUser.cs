@@ -23,4 +23,7 @@ public sealed class PlatformUser
 
     public ICollection<WithdrawalRequest> ProcessedWithdrawalRequests { get; set; } =
         new List<WithdrawalRequest>();
+
+    public ICollection<WithdrawalBankAccount> VerifiedWithdrawalBankAccounts { get; set; } =
+        new List<WithdrawalBankAccount>();
 }
