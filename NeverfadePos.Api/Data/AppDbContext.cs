@@ -40,6 +40,7 @@ public class AppDbContext : DbContext
     public DbSet<PaymentLedgerEntry> PaymentLedgerEntries => Set<PaymentLedgerEntry>();
     public DbSet<PaymentWebhookEvent> PaymentWebhookEvents => Set<PaymentWebhookEvent>();
     public DbSet<PaymentRoute> PaymentRoutes => Set<PaymentRoute>();
+    public DbSet<WithdrawalBankAccount> WithdrawalBankAccounts => Set<WithdrawalBankAccount>();
     public DbSet<WithdrawalRequest> WithdrawalRequests => Set<WithdrawalRequest>();
     public DbSet<WithdrawalRoute> WithdrawalRoutes => Set<WithdrawalRoute>();
 
