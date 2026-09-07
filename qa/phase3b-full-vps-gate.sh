@@ -96,23 +96,23 @@ sync_repo() {
     sleep 2
   done
 
-  if [[ "$fetch_ok" -eq 1 ]]; then
-    git -C "$repo" merge --ff-only "origin/$BRANCH"
-  else
-    [[ "$ALLOW_OFFLINE_GIT" == "1" ]] || fail "$label tidak dapat sync dari GitHub"
-    [[ -n "$expected_head" ]] || fail "$label expected HEAD wajib saat offline fallback"
-
+  if [[ -n "$expected_head" ]]; then
     local current_head
     current_head="$(git -C "$repo" rev-parse HEAD)"
-    [[ "$current_head" == "$expected_head" ]] || fail "$label local HEAD $current_head != expected $expected_head"
+    [[ "$current_head" == "$expected_head" ]] || fail "$label local HEAD $current_head != expected pinned HEAD $expected_head"
 
-    printf '[WARN] %s GitHub unreachable; memakai exact clean local HEAD %s.\n' "$label" "$current_head" >&2
-  fi
-
-  if [[ -n "$expected_head" ]]; then
-    local final_head
-    final_head="$(git -C "$repo" rev-parse HEAD)"
-    [[ "$final_head" == "$expected_head" ]] || fail "$label HEAD $final_head != expected $expected_head"
+    if [[ "$fetch_ok" -eq 1 ]]; then
+      git -C "$repo" merge-base --is-ancestor "$expected_head" "origin/$BRANCH" \
+        || fail "$label pinned HEAD tidak berada pada origin/$BRANCH"
+      printf '[INFO] %s pinned source HEAD tetap %s.\n' "$label" "$expected_head"
+    else
+      [[ "$ALLOW_OFFLINE_GIT" == "1" ]] || fail "$label tidak dapat sync dari GitHub"
+      printf '[WARN] %s GitHub unreachable; memakai exact clean pinned local HEAD %s.\n' "$label" "$current_head" >&2
+    fi
+  elif [[ "$fetch_ok" -eq 1 ]]; then
+    git -C "$repo" merge --ff-only "origin/$BRANCH"
+  else
+    fail "$label tidak dapat sync dari GitHub dan tidak ada pinned expected HEAD"
   fi
 }
 
