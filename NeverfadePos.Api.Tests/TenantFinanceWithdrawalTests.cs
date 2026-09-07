@@ -21,14 +21,15 @@ namespace NeverfadePos.Api.Tests;
 public sealed class TenantFinanceWithdrawalTests
 {
     [Fact]
-    public async Task FinanceSummary_CalculatesIncomeWithdrawnPendingAndAvailable()
+    public async Task FinanceSummary_HoldsRequestedAndProcessingWithdrawals()
     {
         await using var factory = new FinanceApiFactory();
         using var owner = await CreateTenantClientAsync(
             factory,
             "owner",
             "owner123");
-        await SeedCreditAsync(factory, 100_000m);
+
+        await SeedCreditAsync(factory, 300_000m);
         await SeedWithdrawalAsync(
             factory,
             30_000m,
@@ -37,134 +38,297 @@ public sealed class TenantFinanceWithdrawalTests
         await SeedWithdrawalAsync(
             factory,
             20_000m,
-            WithdrawalConstants.StatusRequested);
+            WithdrawalConstants.StatusProcessing);
 
         var summary = await owner.GetFromJsonAsync<FinanceSummaryDto>(
             "/api/finance/summary");
 
         Assert.NotNull(summary);
-        Assert.Equal(50_000m, summary.AvailableBalance);
-        Assert.Equal(100_000m, summary.TotalSuccessfulNonCashIncome);
+        Assert.Equal(250_000m, summary.AvailableBalance);
+        Assert.Equal(300_000m, summary.TotalSuccessfulNonCashIncome);
         Assert.Equal(30_000m, summary.TotalWithdrawn);
         Assert.Equal(20_000m, summary.PendingWithdrawalAmount);
     }
 
     [Fact]
-    public async Task FinanceMovements_ExposeAuthoritativeCreditsAndWithdrawalStates()
+    public async Task FinanceMovements_ExposeExpandedWithdrawalStates()
     {
         await using var factory = new FinanceApiFactory();
         using var owner = await CreateTenantClientAsync(
             factory,
             "owner",
             "owner123");
-        await SeedCreditAsync(factory, 100_000m);
+
+        await SeedCreditAsync(factory, 500_000m);
         await SeedWithdrawalAsync(
             factory,
-            30_000m,
+            100_000m,
             WithdrawalConstants.StatusPaid,
             includeDebit: true);
         await SeedWithdrawalAsync(
             factory,
-            20_000m,
+            100_000m,
             WithdrawalConstants.StatusRejected);
         await SeedWithdrawalAsync(
             factory,
-            10_000m,
-            WithdrawalConstants.StatusRequested);
+            100_000m,
+            WithdrawalConstants.StatusCancelled);
+        await SeedWithdrawalAsync(
+            factory,
+            100_000m,
+            WithdrawalConstants.StatusProcessing);
 
         var movements = await owner.GetFromJsonAsync<List<FinanceMovementDto>>(
             "/api/finance/movements");
 
         Assert.NotNull(movements);
-        Assert.Equal(4, movements.Count);
+        Assert.Equal(5, movements.Count);
         Assert.Contains(movements, x =>
             x.Type == "qris_credit" &&
             x.Status == "paid" &&
-            x.Amount == 100_000m &&
-            x.PaymentId.HasValue &&
-            x.TransactionId.HasValue);
+            x.Amount == 500_000m);
         Assert.Contains(movements, x =>
-            x.Type == "withdrawal" && x.Status == "requested");
+            x.Type == "withdrawal" &&
+            x.Status == WithdrawalConstants.StatusProcessing);
         Assert.Contains(movements, x =>
-            x.Type == "withdrawal" && x.Status == "paid");
-        Assert.Contains(movements, x =>
-            x.Type == "withdrawal" && x.Status == "rejected");
+            x.Type == "withdrawal" &&
+            x.Status == WithdrawalConstants.StatusCancelled);
     }
 
     [Fact]
-    public async Task Owner_CanCreateValidWithdrawalRequest()
+    public async Task OwnerBankAccount_IsMasked_AndPlatformCanVerifyIt()
     {
         await using var factory = new FinanceApiFactory();
         using var owner = await CreateTenantClientAsync(
             factory,
             "owner",
             "owner123");
-        await SeedCreditAsync(factory, 100_000m);
+        using var platform = await CreatePlatformClientAsync(factory);
 
-        var response = await owner.PostAsJsonAsync(
-            "/api/finance/withdrawals",
-            new { amount = 40_000m });
+        var savedResponse = await owner.PutAsJsonAsync(
+            "/api/finance/bank-account",
+            new
+            {
+                bankName = "BCA",
+                accountNumber = "1234 5678 90",
+                accountHolderName = "Owner NeverFade"
+            });
 
-        Assert.True(
-            response.StatusCode == HttpStatusCode.OK,
-            await response.Content.ReadAsStringAsync());
-        var withdrawal = await response.Content
-            .ReadFromJsonAsync<WithdrawalDto>();
-        Assert.NotNull(withdrawal);
-        Assert.Equal(40_000m, withdrawal.Amount);
+        Assert.Equal(HttpStatusCode.OK, savedResponse.StatusCode);
+
+        var saved = await savedResponse.Content
+            .ReadFromJsonAsync<WithdrawalBankAccountDto>();
+
+        Assert.NotNull(saved);
+        Assert.Equal("•••• 7890", saved.MaskedAccountNumber);
+        Assert.Equal(WithdrawalConstants.BankPending, saved.VerificationStatus);
+
+        var pending = await platform.GetFromJsonAsync<
+            List<PlatformWithdrawalBankAccountDto>>(
+                "/api/platform/withdrawals/bank-accounts?status=pending");
+
+        Assert.Single(pending!);
+        Assert.Equal("1234567890", pending![0].AccountNumber);
+
+        var review = await platform.PostAsJsonAsync(
+            $"/api/platform/withdrawals/bank-accounts/{pending[0].TenantId}/review",
+            new
+            {
+                verified = true,
+                reason = "Nama dan rekening sesuai."
+            });
+
+        Assert.Equal(HttpStatusCode.OK, review.StatusCode);
+
+        var ownerView = await owner.GetFromJsonAsync<WithdrawalBankAccountDto>(
+            "/api/finance/bank-account");
+
+        Assert.NotNull(ownerView);
         Assert.Equal(
-            WithdrawalConstants.StatusRequested,
-            withdrawal.Status);
-
-        var listed = await owner.GetFromJsonAsync<List<WithdrawalDto>>(
-            "/api/finance/withdrawals");
-        Assert.Single(listed!);
-        Assert.Equal(withdrawal.Id, listed![0].Id);
+            WithdrawalConstants.BankVerified,
+            ownerView.VerificationStatus);
+        Assert.Equal("•••• 7890", ownerView.MaskedAccountNumber);
     }
 
     [Fact]
-    public async Task Withdrawal_RejectsInsufficientBalance()
+    public async Task Withdrawal_RequiresVerifiedBankAccount_AndMinimumAmount()
     {
         await using var factory = new FinanceApiFactory();
         using var owner = await CreateTenantClientAsync(
             factory,
             "owner",
             "owner123");
-        await SeedCreditAsync(factory, 50_000m);
+        using var platform = await CreatePlatformClientAsync(factory);
 
-        var response = await owner.PostAsJsonAsync(
+        await SeedCreditAsync(factory, 500_000m);
+
+        var noBank = await owner.PostAsJsonAsync(
             "/api/finance/withdrawals",
-            new { amount = 50_001m });
+            new { amount = 100_000m });
 
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, noBank.StatusCode);
         Assert.Contains(
-            "WITHDRAWAL_INSUFFICIENT_BALANCE",
-            await response.Content.ReadAsStringAsync());
+            "WITHDRAWAL_BANK_ACCOUNT_REQUIRED",
+            await noBank.Content.ReadAsStringAsync());
+
+        await owner.PutAsJsonAsync(
+            "/api/finance/bank-account",
+            new
+            {
+                bankName = "BCA",
+                accountNumber = "1234567890",
+                accountHolderName = "Owner NeverFade"
+            });
+
+        var pendingBank = await owner.PostAsJsonAsync(
+            "/api/finance/withdrawals",
+            new { amount = 100_000m });
+
+        Assert.Equal(HttpStatusCode.Conflict, pendingBank.StatusCode);
+        Assert.Contains(
+            "WITHDRAWAL_BANK_ACCOUNT_NOT_VERIFIED",
+            await pendingBank.Content.ReadAsStringAsync());
+
+        var bank = (await platform.GetFromJsonAsync<
+            List<PlatformWithdrawalBankAccountDto>>(
+                "/api/platform/withdrawals/bank-accounts"))!.Single();
+
+        await platform.PostAsJsonAsync(
+            $"/api/platform/withdrawals/bank-accounts/{bank.TenantId}/review",
+            new { verified = true });
+
+        var belowMinimum = await owner.PostAsJsonAsync(
+            "/api/finance/withdrawals",
+            new { amount = 99_999m });
+
+        Assert.Equal(HttpStatusCode.BadRequest, belowMinimum.StatusCode);
+        Assert.Contains(
+            "WITHDRAWAL_BELOW_MINIMUM",
+            await belowMinimum.Content.ReadAsStringAsync());
+
+        var valid = await owner.PostAsJsonAsync(
+            "/api/finance/withdrawals",
+            new { amount = 100_000m });
+
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+
+        var withdrawal = await valid.Content
+            .ReadFromJsonAsync<WithdrawalDto>();
+
+        Assert.NotNull(withdrawal);
+        Assert.Equal("BCA", withdrawal.DestinationBankName);
+        Assert.Equal("•••• 7890", withdrawal.DestinationAccountMask);
+        Assert.Equal(
+            "Owner NeverFade",
+            withdrawal.DestinationAccountHolderName);
     }
 
     [Fact]
-    public async Task MultiplePendingWithdrawals_CannotExceedBalance()
+    public async Task ChangingVerifiedBankAccount_ResetsVerification()
     {
         await using var factory = new FinanceApiFactory();
         using var owner = await CreateTenantClientAsync(
             factory,
             "owner",
             "owner123");
-        await SeedCreditAsync(factory, 100_000m);
+        using var platform = await CreatePlatformClientAsync(factory);
+
+        await SeedVerifiedBankAccountAsync(factory);
+
+        var updated = await owner.PutAsJsonAsync(
+            "/api/finance/bank-account",
+            new
+            {
+                bankName = "Mandiri",
+                accountNumber = "9988776655",
+                accountHolderName = "Owner NeverFade"
+            });
+
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+
+        var body = await updated.Content
+            .ReadFromJsonAsync<WithdrawalBankAccountDto>();
+
+        Assert.NotNull(body);
+        Assert.Equal(WithdrawalConstants.BankPending, body.VerificationStatus);
+        Assert.Null(body.VerifiedAt);
+        Assert.Null(body.VerificationNote);
+
+        var pending = await platform.GetFromJsonAsync<
+            List<PlatformWithdrawalBankAccountDto>>(
+                "/api/platform/withdrawals/bank-accounts?status=pending");
+
+        Assert.Single(pending!);
+        Assert.Equal("9988776655", pending![0].AccountNumber);
+    }
+
+    [Fact]
+    public async Task MultipleHeldWithdrawals_CannotExceedBalance()
+    {
+        await using var factory = new FinanceApiFactory();
+        using var owner = await CreateTenantClientAsync(
+            factory,
+            "owner",
+            "owner123");
+
+        await SeedCreditAsync(factory, 250_000m);
+        await SeedVerifiedBankAccountAsync(factory);
 
         var first = await owner.PostAsJsonAsync(
             "/api/finance/withdrawals",
-            new { amount = 60_000m });
+            new { amount = 150_000m });
+
         var second = await owner.PostAsJsonAsync(
             "/api/finance/withdrawals",
-            new { amount = 50_000m });
+            new { amount = 150_000m });
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+
         var summary = await owner.GetFromJsonAsync<FinanceSummaryDto>(
             "/api/finance/summary");
-        Assert.Equal(40_000m, summary!.AvailableBalance);
-        Assert.Equal(60_000m, summary.PendingWithdrawalAmount);
+
+        Assert.NotNull(summary);
+        Assert.Equal(100_000m, summary.AvailableBalance);
+        Assert.Equal(150_000m, summary.PendingWithdrawalAmount);
+    }
+
+    [Fact]
+    public async Task Owner_CanCancelRequestedWithdrawal_AndReleaseHold()
+    {
+        await using var factory = new FinanceApiFactory();
+        using var owner = await CreateTenantClientAsync(
+            factory,
+            "owner",
+            "owner123");
+
+        await SeedCreditAsync(factory, 200_000m);
+        await SeedVerifiedBankAccountAsync(factory);
+
+        var withdrawal = await CreateWithdrawalAsync(owner, 100_000m);
+
+        var held = await owner.GetFromJsonAsync<FinanceSummaryDto>(
+            "/api/finance/summary");
+        Assert.Equal(100_000m, held!.AvailableBalance);
+
+        var cancelled = await owner.PostAsync(
+            $"/api/finance/withdrawals/{withdrawal.Id}/cancel",
+            null);
+
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+
+        var body = await cancelled.Content
+            .ReadFromJsonAsync<WithdrawalDto>();
+
+        Assert.Equal(
+            WithdrawalConstants.StatusCancelled,
+            body!.Status);
+
+        var released = await owner.GetFromJsonAsync<FinanceSummaryDto>(
+            "/api/finance/summary");
+
+        Assert.Equal(200_000m, released!.AvailableBalance);
+        Assert.Equal(0m, released.PendingWithdrawalAmount);
     }
 
     [Fact]
@@ -183,17 +347,15 @@ public sealed class TenantFinanceWithdrawalTests
 
         await SeedWithdrawalAsync(
             factory,
-            10_000m,
+            100_000m,
             WithdrawalConstants.StatusRequested,
             tenantId: other.TenantId,
             ownerId: other.OwnerId);
 
-        var tenantAList = await ownerA
-            .GetFromJsonAsync<List<WithdrawalDto>>(
-                "/api/finance/withdrawals");
-        var tenantBList = await ownerB
-            .GetFromJsonAsync<List<WithdrawalDto>>(
-                "/api/finance/withdrawals");
+        var tenantAList = await ownerA.GetFromJsonAsync<List<WithdrawalDto>>(
+            "/api/finance/withdrawals");
+        var tenantBList = await ownerB.GetFromJsonAsync<List<WithdrawalDto>>(
+            "/api/finance/withdrawals");
 
         Assert.Empty(tenantAList!);
         Assert.Single(tenantBList!);
@@ -210,13 +372,13 @@ public sealed class TenantFinanceWithdrawalTests
 
         var response = await admin.PostAsJsonAsync(
             "/api/finance/withdrawals",
-            new { amount = 1m });
+            new { amount = 100_000m });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
-    public async Task SuperAdmin_CanMarkPaidAndReject()
+    public async Task Platform_ProcessesPaysAndRejects_WithOperationalProof()
     {
         await using var factory = new FinanceApiFactory();
         using var owner = await CreateTenantClientAsync(
@@ -224,36 +386,70 @@ public sealed class TenantFinanceWithdrawalTests
             "owner",
             "owner123");
         using var platform = await CreatePlatformClientAsync(factory);
-        await SeedCreditAsync(factory, 100_000m);
-        var paidCandidate = await CreateWithdrawalAsync(owner, 40_000m);
-        var rejectedCandidate = await CreateWithdrawalAsync(owner, 20_000m);
 
-        var platformList = await platform
-            .GetFromJsonAsync<List<PlatformWithdrawalDto>>(
-                "/api/platform/withdrawals");
-        var paidResponse = await platform.PostAsync(
+        await SeedCreditAsync(factory, 500_000m);
+        await SeedVerifiedBankAccountAsync(factory);
+
+        var paidCandidate = await CreateWithdrawalAsync(owner, 200_000m);
+        var rejectedCandidate = await CreateWithdrawalAsync(owner, 100_000m);
+
+        var processing = await platform.PostAsync(
+            $"/api/platform/withdrawals/{paidCandidate.Id}/start-processing",
+            null);
+
+        Assert.Equal(HttpStatusCode.OK, processing.StatusCode);
+
+        var missingConfirmation = await platform.PostAsJsonAsync(
             $"/api/platform/withdrawals/{paidCandidate.Id}/mark-paid",
-            null);
-        var rejectedResponse = await platform.PostAsync(
-            $"/api/platform/withdrawals/{rejectedCandidate.Id}/reject",
-            null);
+            new
+            {
+                confirmedTransferred = false,
+                transferReference = "TRF-001"
+            });
 
-        Assert.Equal(2, platformList!.Count);
-        Assert.Equal(HttpStatusCode.OK, paidResponse.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, rejectedResponse.StatusCode);
         Assert.Equal(
-            WithdrawalConstants.StatusPaid,
-            (await paidResponse.Content
-                .ReadFromJsonAsync<PlatformWithdrawalDto>())!.Status);
+            HttpStatusCode.BadRequest,
+            missingConfirmation.StatusCode);
+
+        var paid = await platform.PostAsJsonAsync(
+            $"/api/platform/withdrawals/{paidCandidate.Id}/mark-paid",
+            new
+            {
+                confirmedTransferred = true,
+                transferReference = "TRF-001",
+                evidenceMetadata = "manual-transfer"
+            });
+
+        Assert.Equal(HttpStatusCode.OK, paid.StatusCode);
+
+        var paidBody = await paid.Content
+            .ReadFromJsonAsync<PlatformWithdrawalDto>();
+
+        Assert.Equal(WithdrawalConstants.StatusPaid, paidBody!.Status);
+        Assert.Equal("TRF-001", paidBody.TransferReference);
+        Assert.Equal("1234567890", paidBody.DestinationAccountNumber);
+
+        var rejected = await platform.PostAsJsonAsync(
+            $"/api/platform/withdrawals/{rejectedCandidate.Id}/reject",
+            new { reason = "Data transfer perlu diperbaiki." });
+
+        Assert.Equal(HttpStatusCode.OK, rejected.StatusCode);
+
+        var rejectedBody = await rejected.Content
+            .ReadFromJsonAsync<PlatformWithdrawalDto>();
+
         Assert.Equal(
             WithdrawalConstants.StatusRejected,
-            (await rejectedResponse.Content
-                .ReadFromJsonAsync<PlatformWithdrawalDto>())!.Status);
+            rejectedBody!.Status);
+        Assert.Equal(
+            "Data transfer perlu diperbaiki.",
+            rejectedBody.RejectionReason);
 
         var summary = await owner.GetFromJsonAsync<FinanceSummaryDto>(
             "/api/finance/summary");
-        Assert.Equal(60_000m, summary!.AvailableBalance);
-        Assert.Equal(40_000m, summary.TotalWithdrawn);
+
+        Assert.Equal(300_000m, summary!.AvailableBalance);
+        Assert.Equal(200_000m, summary.TotalWithdrawn);
         Assert.Equal(0m, summary.PendingWithdrawalAmount);
     }
 
@@ -266,15 +462,29 @@ public sealed class TenantFinanceWithdrawalTests
             "owner",
             "owner123");
         using var platform = await CreatePlatformClientAsync(factory);
-        await SeedCreditAsync(factory, 100_000m);
-        var withdrawal = await CreateWithdrawalAsync(owner, 30_000m);
 
-        var first = await platform.PostAsync(
-            $"/api/platform/withdrawals/{withdrawal.Id}/mark-paid",
+        await SeedCreditAsync(factory, 200_000m);
+        await SeedVerifiedBankAccountAsync(factory);
+
+        var withdrawal = await CreateWithdrawalAsync(owner, 100_000m);
+
+        var processing = await platform.PostAsync(
+            $"/api/platform/withdrawals/{withdrawal.Id}/start-processing",
             null);
-        var duplicate = await platform.PostAsync(
+        Assert.Equal(HttpStatusCode.OK, processing.StatusCode);
+
+        var payload = new
+        {
+            confirmedTransferred = true,
+            transferReference = "TRF-IDEMPOTENT"
+        };
+
+        var first = await platform.PostAsJsonAsync(
             $"/api/platform/withdrawals/{withdrawal.Id}/mark-paid",
-            null);
+            payload);
+        var duplicate = await platform.PostAsJsonAsync(
+            $"/api/platform/withdrawals/{withdrawal.Id}/mark-paid",
+            payload);
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.Equal(HttpStatusCode.OK, duplicate.StatusCode);
@@ -285,9 +495,11 @@ public sealed class TenantFinanceWithdrawalTests
             .Where(x => x.WithdrawalRequestId == withdrawal.Id)
             .Select(x => x.TenantId)
             .SingleAsync();
+
         using var tenantScope = scope.ServiceProvider
             .GetRequiredService<ITrustedTenantExecutionScope>()
             .Begin(tenantId, "verify-withdrawal-debit");
+
         var debits = await db.PaymentLedgerEntries
             .Where(x =>
                 x.WithdrawalRequestId == withdrawal.Id &&
@@ -295,7 +507,69 @@ public sealed class TenantFinanceWithdrawalTests
             .ToListAsync();
 
         Assert.Single(debits);
-        Assert.Equal(30_000m, debits[0].Amount);
+        Assert.Equal(100_000m, debits[0].Amount);
+    }
+
+    [Fact]
+    public async Task Owner_CannotCancelWithdrawal_AfterProcessingStarts()
+    {
+        await using var factory = new FinanceApiFactory();
+        using var owner = await CreateTenantClientAsync(
+            factory,
+            "owner",
+            "owner123");
+        using var platform = await CreatePlatformClientAsync(factory);
+
+        await SeedCreditAsync(factory, 200_000m);
+        await SeedVerifiedBankAccountAsync(factory);
+
+        var withdrawal = await CreateWithdrawalAsync(owner, 100_000m);
+
+        await platform.PostAsync(
+            $"/api/platform/withdrawals/{withdrawal.Id}/start-processing",
+            null);
+
+        var cancel = await owner.PostAsync(
+            $"/api/finance/withdrawals/{withdrawal.Id}/cancel",
+            null);
+
+        Assert.Equal(HttpStatusCode.Conflict, cancel.StatusCode);
+        Assert.Contains(
+            "WITHDRAWAL_INVALID_STATE",
+            await cancel.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task PlatformBankRejection_RequiresReason()
+    {
+        await using var factory = new FinanceApiFactory();
+        using var owner = await CreateTenantClientAsync(
+            factory,
+            "owner",
+            "owner123");
+        using var platform = await CreatePlatformClientAsync(factory);
+
+        await owner.PutAsJsonAsync(
+            "/api/finance/bank-account",
+            new
+            {
+                bankName = "BCA",
+                accountNumber = "1234567890",
+                accountHolderName = "Owner NeverFade"
+            });
+
+        var bank = (await platform.GetFromJsonAsync<
+            List<PlatformWithdrawalBankAccountDto>>(
+                "/api/platform/withdrawals/bank-accounts"))!.Single();
+
+        var response = await platform.PostAsJsonAsync(
+            $"/api/platform/withdrawals/bank-accounts/{bank.TenantId}/review",
+            new { verified = false, reason = "" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains(
+            "WITHDRAWAL_BANK_REJECTION_REASON_REQUIRED",
+            await response.Content.ReadAsStringAsync());
     }
 
     private static async Task<WithdrawalDto> CreateWithdrawalAsync(
@@ -305,9 +579,11 @@ public sealed class TenantFinanceWithdrawalTests
         var response = await owner.PostAsJsonAsync(
             "/api/finance/withdrawals",
             new { amount });
+
         Assert.True(
             response.StatusCode == HttpStatusCode.OK,
             await response.Content.ReadAsStringAsync());
+
         return (await response.Content
             .ReadFromJsonAsync<WithdrawalDto>())!;
     }
@@ -321,11 +597,17 @@ public sealed class TenantFinanceWithdrawalTests
         var response = await client.PostAsJsonAsync(
             "/api/auth/login",
             new { username, password });
+
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
         var login = await response.Content
             .ReadFromJsonAsync<LoginResponseDto>();
+
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", login!.Token);
+            new AuthenticationHeaderValue(
+                "Bearer",
+                login!.Token);
+
         return client;
     }
 
@@ -333,6 +615,7 @@ public sealed class TenantFinanceWithdrawalTests
         FinanceApiFactory factory)
     {
         await SeedPlatformUserAsync(factory);
+
         var client = factory.CreateClient();
         var response = await client.PostAsJsonAsync(
             "/api/platform/auth/login",
@@ -341,11 +624,17 @@ public sealed class TenantFinanceWithdrawalTests
                 username = "finance.superadmin",
                 password = "FinancePlatformPassword123!"
             });
+
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
         var login = await response.Content
             .ReadFromJsonAsync<PlatformLoginResponseDto>();
+
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", login!.Token);
+            new AuthenticationHeaderValue(
+                "Bearer",
+                login!.Token);
+
         return client;
     }
 
@@ -354,6 +643,7 @@ public sealed class TenantFinanceWithdrawalTests
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
         if (await db.PlatformUsers.AnyAsync())
         {
             return;
@@ -368,6 +658,47 @@ public sealed class TenantFinanceWithdrawalTests
             Role = PlatformAuthConstants.SuperAdminRole,
             Active = true
         });
+
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedVerifiedBankAccountAsync(
+        FinanceApiFactory factory)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await GetDemoTenantIdAsync(db);
+
+        using var tenantScope = scope.ServiceProvider
+            .GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(tenantId, "seed-verified-withdrawal-bank");
+
+        var existing = await db.WithdrawalBankAccounts
+            .SingleOrDefaultAsync();
+
+        if (existing is not null)
+        {
+            existing.BankName = "BCA";
+            existing.AccountNumber = "1234567890";
+            existing.AccountHolderName = "Owner NeverFade";
+            existing.VerificationStatus = WithdrawalConstants.BankVerified;
+            existing.VerifiedAt = DateTime.UtcNow;
+            existing.VerificationNote = "Seed verified";
+        }
+        else
+        {
+            db.WithdrawalBankAccounts.Add(new WithdrawalBankAccount
+            {
+                TenantId = tenantId,
+                BankName = "BCA",
+                AccountNumber = "1234567890",
+                AccountHolderName = "Owner NeverFade",
+                VerificationStatus = WithdrawalConstants.BankVerified,
+                VerifiedAt = DateTime.UtcNow,
+                VerificationNote = "Seed verified"
+            });
+        }
+
         await db.SaveChangesAsync();
     }
 
@@ -380,12 +711,16 @@ public sealed class TenantFinanceWithdrawalTests
         var tenantId = await GetDemoTenantIdAsync(db);
         var ownerId = await db.Users
             .IgnoreQueryFilters()
-            .Where(x => x.TenantId == tenantId && x.Role == "owner")
+            .Where(x =>
+                x.TenantId == tenantId &&
+                x.Role == "owner")
             .Select(x => x.Id)
             .SingleAsync();
+
         using var tenantScope = scope.ServiceProvider
             .GetRequiredService<ITrustedTenantExecutionScope>()
             .Begin(tenantId, "seed-finance-credit");
+
         var transaction = new NeverfadePos.Api.Entities.Transaction
         {
             TenantId = tenantId,
@@ -398,6 +733,7 @@ public sealed class TenantFinanceWithdrawalTests
             Status = TransactionStatuses.Paid,
             FinalizedAt = DateTime.UtcNow
         };
+
         var payment = new Payment
         {
             TenantId = tenantId,
@@ -422,6 +758,7 @@ public sealed class TenantFinanceWithdrawalTests
                 Amount = amount,
                 ProviderReference = payment.ProviderPaymentId
             });
+
         await db.SaveChangesAsync();
     }
 
@@ -443,19 +780,37 @@ public sealed class TenantFinanceWithdrawalTests
                 x.Role == "owner")
             .Select(x => x.Id)
             .SingleAsync();
+
         using var tenantScope = scope.ServiceProvider
             .GetRequiredService<ITrustedTenantExecutionScope>()
             .Begin(targetTenantId, "seed-finance-withdrawal");
+
+        var now = DateTime.UtcNow;
         var withdrawal = new WithdrawalRequest
         {
             TenantId = targetTenantId,
             Amount = amount,
             Status = status,
             RequestedByUserId = targetOwnerId,
-            ProcessedAt = status == WithdrawalConstants.StatusRequested
-                ? null
-                : DateTime.UtcNow
+            DestinationBankName = "BCA",
+            DestinationAccountNumber = "1234567890",
+            DestinationAccountHolderName = "Owner NeverFade",
+            UpdatedAt = now,
+            ProcessingStartedAt =
+                status == WithdrawalConstants.StatusProcessing
+                    ? now
+                    : null,
+            ProcessedAt =
+                status is WithdrawalConstants.StatusPaid or
+                    WithdrawalConstants.StatusRejected
+                    ? now
+                    : null,
+            CancelledAt =
+                status == WithdrawalConstants.StatusCancelled
+                    ? now
+                    : null
         };
+
         db.WithdrawalRequests.Add(withdrawal);
         db.WithdrawalRoutes.Add(new WithdrawalRoute
         {
@@ -495,6 +850,7 @@ public sealed class TenantFinanceWithdrawalTests
             Slug = $"finance-tenant-{tenantId:N}",
             Status = "active"
         });
+
         using (scope.ServiceProvider
             .GetRequiredService<ITrustedTenantExecutionScope>()
             .Begin(tenantId, "seed-finance-other-tenant"))
@@ -509,13 +865,19 @@ public sealed class TenantFinanceWithdrawalTests
                 Role = "owner",
                 Active = true
             });
+
             await db.SaveChangesAsync();
         }
 
-        return new OtherTenant(tenantId, ownerId, username, password);
+        return new OtherTenant(
+            tenantId,
+            ownerId,
+            username,
+            password);
     }
 
-    private static Task<Guid> GetDemoTenantIdAsync(AppDbContext db) =>
+    private static Task<Guid> GetDemoTenantIdAsync(
+        AppDbContext db) =>
         db.Tenants
             .Where(x => x.Slug == "warung-lumpia-beef")
             .Select(x => x.Id)
@@ -527,18 +889,22 @@ public sealed class TenantFinanceWithdrawalTests
         string Username,
         string Password);
 
-    private sealed class FinanceApiFactory : WebApplicationFactory<Program>
+    private sealed class FinanceApiFactory
+        : WebApplicationFactory<Program>
     {
         private const string TenantKey =
             "finance-tenant-test-key-that-is-at-least-32-characters";
         private const string PlatformKey =
             "finance-platform-test-key-that-is-at-least-32-characters";
+
         private readonly string _databaseName =
             $"finance-api-{Guid.NewGuid():N}";
 
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        protected override void ConfigureWebHost(
+            IWebHostBuilder builder)
         {
             builder.UseEnvironment("Development");
+
             var config = new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] =
@@ -559,14 +925,17 @@ public sealed class TenantFinanceWithdrawalTests
                 builder.UseSetting(item.Key, item.Value);
             }
 
-            builder.ConfigureAppConfiguration((_, configuration) =>
-                configuration.AddInMemoryCollection(config));
+            builder.ConfigureAppConfiguration(
+                (_, configuration) =>
+                    configuration.AddInMemoryCollection(config));
+
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<AppDbContext>();
                 services.RemoveAll<DbContextOptions<AppDbContext>>();
                 services.RemoveAll<
                     IDbContextOptionsConfiguration<AppDbContext>>();
+
                 services.AddDbContext<AppDbContext>(options =>
                     options.UseInMemoryDatabase(_databaseName));
             });
