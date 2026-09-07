@@ -30,11 +30,37 @@ public sealed class FinanceController(
         CancellationToken cancellationToken) =>
         Ok(await financeService.GetMovementsAsync(cancellationToken));
 
+    [HttpGet("withdrawal-settings")]
+    public async Task<ActionResult<WithdrawalSettingsDto>> GetWithdrawalSettings(
+        CancellationToken cancellationToken) =>
+        Ok(await financeService.GetWithdrawalSettingsAsync(cancellationToken));
+
+    [HttpGet("bank-account")]
+    public async Task<ActionResult<WithdrawalBankAccountDto?>> GetBankAccount(
+        CancellationToken cancellationToken) =>
+        Ok(await financeService.GetBankAccountAsync(cancellationToken));
+
+    [HttpPut("bank-account")]
+    public async Task<ActionResult<WithdrawalBankAccountDto>> PutBankAccount(
+        UpdateWithdrawalBankAccountRequestDto request,
+        CancellationToken cancellationToken) =>
+        Ok(await financeService.PutBankAccountAsync(
+            request,
+            cancellationToken));
+
     [HttpPost("withdrawals")]
     public async Task<ActionResult<WithdrawalDto>> CreateWithdrawal(
         CreateWithdrawalRequestDto request,
         CancellationToken cancellationToken) =>
         Ok(await financeService.CreateWithdrawalAsync(
             request,
+            cancellationToken));
+
+    [HttpPost("withdrawals/{withdrawalId:guid}/cancel")]
+    public async Task<ActionResult<WithdrawalDto>> CancelWithdrawal(
+        Guid withdrawalId,
+        CancellationToken cancellationToken) =>
+        Ok(await financeService.CancelWithdrawalAsync(
+            withdrawalId,
             cancellationToken));
 }
