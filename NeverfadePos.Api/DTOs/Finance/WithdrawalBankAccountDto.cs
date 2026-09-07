@@ -10,6 +10,7 @@ public sealed class WithdrawalBankAccountDto
     public string VerificationStatus { get; set; } = string.Empty;
     public DateTime UpdatedAt { get; set; }
     public DateTime? VerifiedAt { get; set; }
+    public string? VerificationNote { get; set; }
 }
 
 public sealed class PlatformWithdrawalBankAccountDto
