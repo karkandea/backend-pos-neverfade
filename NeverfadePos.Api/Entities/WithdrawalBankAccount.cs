@@ -12,6 +12,7 @@ public sealed class WithdrawalBankAccount : BaseEntity
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? VerifiedAt { get; set; }
     public Guid? VerifiedByPlatformUserId { get; set; }
+    public string? VerificationNote { get; set; }
 
     public Tenant? Tenant { get; set; }
     public PlatformUser? VerifiedByPlatformUser { get; set; }
