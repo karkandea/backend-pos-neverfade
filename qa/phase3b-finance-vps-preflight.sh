@@ -60,8 +60,12 @@ sync_repo() {
     done
 
     if [[ "$fetched" == "1" ]]; then
-      git -C "$path" switch "$BRANCH"
-      git -C "$path" merge --ff-only "origin/$BRANCH"
+      if git -C "$path" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+        git -C "$path" switch "$BRANCH"
+        git -C "$path" merge --ff-only "origin/$BRANCH"
+      else
+        git -C "$path" switch --create "$BRANCH" --track "origin/$BRANCH"
+      fi
     elif [[ "$ALLOW_OFFLINE" != "1" ]]; then
       fail "fetch $label gagal dan offline fallback tidak diizinkan."
     fi
