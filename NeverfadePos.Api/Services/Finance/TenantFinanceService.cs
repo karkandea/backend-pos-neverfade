@@ -156,6 +156,7 @@ internal sealed class TenantFinanceService(
             account.VerificationStatus = WithdrawalConstants.BankPending;
             account.VerifiedAt = null;
             account.VerifiedByPlatformUserId = null;
+            account.VerificationNote = null;
             account.UpdatedAt = now;
         }
 
@@ -383,6 +384,7 @@ internal sealed class TenantFinanceService(
             $"•••• {Last4(account.AccountNumber)}",
         AccountHolderName = account.AccountHolderName,
         VerificationStatus = account.VerificationStatus,
+        VerificationNote = account.VerificationNote,
         UpdatedAt = account.UpdatedAt,
         VerifiedAt = account.VerifiedAt
     };
