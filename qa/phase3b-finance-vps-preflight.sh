@@ -7,8 +7,8 @@ BACKEND="$WORKSPACE/backend"
 FRONTEND="$WORKSPACE/frontend"
 BACKEND_REPO="https://github.com/karkandea/backend-pos-neverfade.git"
 FRONTEND_REPO="https://github.com/karkandea/frontend-pos-neverfade.git"
-EXPECTED_BACKEND="${NF_PHASE3B_FINANCE_EXPECTED_BACKEND_HEAD:-bea0de0c9d9c3c9bb7a18489a25396dc8e68a5b5}"
-EXPECTED_FRONTEND="${NF_PHASE3B_FINANCE_EXPECTED_FRONTEND_HEAD:-db5173c2e4ca3194aaaeab705a64c0257857de60}"
+EXPECTED_BACKEND="${NF_PHASE3B_FINANCE_EXPECTED_BACKEND_HEAD:-}"
+EXPECTED_FRONTEND="${NF_PHASE3B_FINANCE_EXPECTED_FRONTEND_HEAD:-}"
 ALLOW_OFFLINE="${NF_PHASE3B_ALLOW_OFFLINE_GIT:-0}"
 BUILD_CPUS="${NF_BUILD_CPUS:-1.0}"
 BUILD_MEMORY="${NF_BUILD_MEMORY:-2g}"
@@ -72,6 +72,8 @@ sync_repo() {
 
   local actual
   actual="$(git -C "$path" rev-parse HEAD)"
+  [[ -n "$expected" ]] ||
+    fail "expected HEAD untuk $label wajib diisi."
   [[ "$actual" == "$expected" ]] ||
     fail "$label HEAD $actual tidak sama dengan expected $expected."
 }
