@@ -11,4 +11,8 @@ public sealed class PlatformWithdrawalDto : WithdrawalDto
     public string RequestedByName { get; set; } = string.Empty;
 
     public string RequestedByUsername { get; set; } = string.Empty;
+
+    public string DestinationAccountNumber { get; set; } = string.Empty;
+
+    public string? EvidenceMetadata { get; set; }
 }
