@@ -13,7 +13,21 @@ public interface ITenantFinanceService
     Task<IReadOnlyList<FinanceMovementDto>> GetMovementsAsync(
         CancellationToken cancellationToken = default);
 
+    Task<WithdrawalSettingsDto> GetWithdrawalSettingsAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<WithdrawalBankAccountDto?> GetBankAccountAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<WithdrawalBankAccountDto> PutBankAccountAsync(
+        UpdateWithdrawalBankAccountRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<WithdrawalDto> CreateWithdrawalAsync(
         CreateWithdrawalRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<WithdrawalDto> CancelWithdrawalAsync(
+        Guid withdrawalId,
         CancellationToken cancellationToken = default);
 }
