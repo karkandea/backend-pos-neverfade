@@ -38,6 +38,7 @@ public class Tenant
     public ICollection<PaymentLedgerEntry> PaymentLedgerEntries { get; set; } = new List<PaymentLedgerEntry>();
     public ICollection<PaymentWebhookEvent> PaymentWebhookEvents { get; set; } = new List<PaymentWebhookEvent>();
     public ICollection<PaymentRoute> PaymentRoutes { get; set; } = new List<PaymentRoute>();
+    public ICollection<WithdrawalBankAccount> WithdrawalBankAccounts { get; set; } = new List<WithdrawalBankAccount>();
     public ICollection<WithdrawalRequest> WithdrawalRequests { get; set; } = new List<WithdrawalRequest>();
     public ICollection<WithdrawalRoute> WithdrawalRoutes { get; set; } = new List<WithdrawalRoute>();
     public ICollection<PlatformAuditEvent> PlatformAuditEvents { get; set; } = new List<PlatformAuditEvent>();
