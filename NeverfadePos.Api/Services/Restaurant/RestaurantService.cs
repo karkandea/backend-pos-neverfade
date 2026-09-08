@@ -507,32 +507,21 @@ public sealed class RestaurantService(
             .GroupBy(x => x.ProductId)
             .ToDictionary(
                 group => group.Key,
-                group => new
-                {
-                    Qty = group.Sum(x => x.Qty),
-                    Subtotal = Money(group.Sum(x => x.HargaJual * x.Qty))
-                });
+                group => group.Sum(x => x.Qty));
 
         var transactionGroups = transaction.Items
             .GroupBy(x => x.ProductId)
             .ToDictionary(
                 group => group.Key,
-                group => new
-                {
-                    Qty = group.Sum(x => x.Qty),
-                    Subtotal = Money(group.Sum(x => x.Subtotal))
-                });
+                group => group.Sum(x => x.Qty));
 
         var itemsMatch =
             orderGroups.Count == transactionGroups.Count &&
             orderGroups.All(pair =>
-                transactionGroups.TryGetValue(pair.Key, out var transactionItem) &&
-                transactionItem.Qty == pair.Value.Qty &&
-                transactionItem.Subtotal == pair.Value.Subtotal);
+                transactionGroups.TryGetValue(pair.Key, out var transactionQty) &&
+                transactionQty == pair.Value);
 
-        if (!itemsMatch ||
-            Money(transaction.Subtotal) !=
-            Money(activeItems.Sum(x => x.HargaJual * x.Qty)))
+        if (!itemsMatch)
         {
             throw Conflict(
                 "RESTAURANT_TRANSACTION_MISMATCH",
