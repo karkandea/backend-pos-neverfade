@@ -231,9 +231,23 @@ public sealed class RestaurantService(
         CancellationToken cancellationToken = default)
     {
         var (tenantId, _) = RequireUser();
-        var order = await LoadOpenOrderAsync(orderId, cancellationToken);
+
+        var orderExists = await db.RestaurantOrders
+            .AsNoTracking()
+            .AnyAsync(
+                x =>
+                    x.Id == orderId &&
+                    x.Status == RestaurantConstants.OrderOpen,
+                cancellationToken);
+
+        if (!orderExists)
+        {
+            throw new KeyNotFoundException(
+                "Pesanan meja aktif tidak ditemukan.");
+        }
 
         var product = await db.Products
+            .AsNoTracking()
             .SingleOrDefaultAsync(
                 x => x.Id == request.ProductId,
                 cancellationToken)
@@ -255,10 +269,14 @@ public sealed class RestaurantService(
         }
 
         var note = CleanNote(request.Note);
-        var draft = order.Items.FirstOrDefault(x =>
-            x.ProductId == product.Id &&
-            x.KitchenStatus == RestaurantConstants.KitchenDraft &&
-            string.Equals(x.Note ?? string.Empty, note, StringComparison.Ordinal));
+        var draft = await db.RestaurantOrderItems
+            .SingleOrDefaultAsync(
+                x =>
+                    x.RestaurantOrderId == orderId &&
+                    x.ProductId == product.Id &&
+                    x.KitchenStatus == RestaurantConstants.KitchenDraft &&
+                    (x.Note ?? string.Empty) == note,
+                cancellationToken);
 
         if (draft is not null)
         {
@@ -276,10 +294,10 @@ public sealed class RestaurantService(
         }
         else
         {
-            order.Items.Add(new RestaurantOrderItem
+            db.RestaurantOrderItems.Add(new RestaurantOrderItem
             {
                 TenantId = tenantId,
-                RestaurantOrderId = order.Id,
+                RestaurantOrderId = orderId,
                 ProductId = product.Id,
                 Nama = product.Nama,
                 HargaJual = Money(product.HargaJual),
@@ -290,9 +308,11 @@ public sealed class RestaurantService(
             });
         }
 
-        order.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
-        return MapOrder(order);
+
+        return await GetOrderAsync(
+            orderId,
+            cancellationToken);
     }
 
     public async Task<RestaurantOrderDto> UpdateDraftItemAsync(
