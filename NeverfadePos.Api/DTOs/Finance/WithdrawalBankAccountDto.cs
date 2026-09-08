@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace NeverfadePos.Api.DTOs.Finance;
 
-public sealed class WithdrawalBankAccountDto
+public class WithdrawalBankAccountDto
 {
     public string BankName { get; set; } = string.Empty;
     public string MaskedAccountNumber { get; set; } = string.Empty;
