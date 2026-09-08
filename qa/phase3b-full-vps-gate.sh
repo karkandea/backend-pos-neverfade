@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-BRANCH="feat/phase-3b-shared-device-attendance"
+BRANCH="${NF_PHASE3B_BRANCH:-feat/phase-3b-finance-withdrawal}"
 ALLOW_OFFLINE_GIT="${NF_PHASE3B_ALLOW_OFFLINE_GIT:-0}"
 EXPECTED_BACKEND_HEAD="${NF_PHASE3B_EXPECTED_BACKEND_HEAD:-}"
 EXPECTED_FRONTEND_HEAD="${NF_PHASE3B_EXPECTED_FRONTEND_HEAD:-}"
@@ -84,17 +84,30 @@ sync_repo() {
     fail "$label repo harus clean: $repo"
   fi
 
-  git -C "$repo" switch "$BRANCH"
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    git -C "$repo" switch "$BRANCH"
+  fi
 
   fetch_ok=0
+  fetched_head=""
   for attempt in 1 2 3; do
     if timeout 35 git -C "$repo" fetch origin "$BRANCH"; then
       fetch_ok=1
+      fetched_head="$(git -C "$repo" rev-parse FETCH_HEAD)"
       break
     fi
     printf '[WARN] %s GitHub fetch attempt %s/3 gagal.\n' "$label" "$attempt" >&2
     sleep 2
   done
+
+  if [[ "$fetch_ok" -eq 1 ]]; then
+    if git -C "$repo" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+      git -C "$repo" switch "$BRANCH"
+      git -C "$repo" merge --ff-only "$fetched_head"
+    else
+      git -C "$repo" switch --create "$BRANCH" "$fetched_head"
+    fi
+  fi
 
   if [[ -n "$expected_head" ]]; then
     local current_head
@@ -102,16 +115,14 @@ sync_repo() {
     [[ "$current_head" == "$expected_head" ]] || fail "$label local HEAD $current_head != expected pinned HEAD $expected_head"
 
     if [[ "$fetch_ok" -eq 1 ]]; then
-      git -C "$repo" merge-base --is-ancestor "$expected_head" "origin/$BRANCH" \
-        || fail "$label pinned HEAD tidak berada pada origin/$BRANCH"
+      git -C "$repo" merge-base --is-ancestor "$expected_head" "$fetched_head" \
+        || fail "$label pinned HEAD tidak berada pada fetched $BRANCH"
       printf '[INFO] %s pinned source HEAD tetap %s.\n' "$label" "$expected_head"
     else
       [[ "$ALLOW_OFFLINE_GIT" == "1" ]] || fail "$label tidak dapat sync dari GitHub"
       printf '[WARN] %s GitHub unreachable; memakai exact clean pinned local HEAD %s.\n' "$label" "$current_head" >&2
     fi
-  elif [[ "$fetch_ok" -eq 1 ]]; then
-    git -C "$repo" merge --ff-only "origin/$BRANCH"
-  else
+  elif [[ "$fetch_ok" -ne 1 ]]; then
     fail "$label tidak dapat sync dari GitHub dan tidak ada pinned expected HEAD"
   fi
 }
