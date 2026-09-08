@@ -41,5 +41,8 @@ public class Tenant
     public ICollection<WithdrawalBankAccount> WithdrawalBankAccounts { get; set; } = new List<WithdrawalBankAccount>();
     public ICollection<WithdrawalRequest> WithdrawalRequests { get; set; } = new List<WithdrawalRequest>();
     public ICollection<WithdrawalRoute> WithdrawalRoutes { get; set; } = new List<WithdrawalRoute>();
+    public ICollection<RestaurantTable> RestaurantTables { get; set; } = new List<RestaurantTable>();
+    public ICollection<RestaurantOrder> RestaurantOrders { get; set; } = new List<RestaurantOrder>();
+    public ICollection<RestaurantOrderItem> RestaurantOrderItems { get; set; } = new List<RestaurantOrderItem>();
     public ICollection<PlatformAuditEvent> PlatformAuditEvents { get; set; } = new List<PlatformAuditEvent>();
 }

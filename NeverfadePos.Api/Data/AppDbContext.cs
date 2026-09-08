@@ -43,6 +43,9 @@ public class AppDbContext : DbContext
     public DbSet<WithdrawalBankAccount> WithdrawalBankAccounts => Set<WithdrawalBankAccount>();
     public DbSet<WithdrawalRequest> WithdrawalRequests => Set<WithdrawalRequest>();
     public DbSet<WithdrawalRoute> WithdrawalRoutes => Set<WithdrawalRoute>();
+    public DbSet<RestaurantTable> RestaurantTables => Set<RestaurantTable>();
+    public DbSet<RestaurantOrder> RestaurantOrders => Set<RestaurantOrder>();
+    public DbSet<RestaurantOrderItem> RestaurantOrderItems => Set<RestaurantOrderItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
