@@ -112,8 +112,10 @@ public sealed class RestaurantFnbTests
 
         var tables = await kasir.GetFromJsonAsync<List<RestaurantTableDto>>(
             "/api/restaurant/tables");
-        Assert.Equal("occupied", tables!.Single().Status);
-        Assert.Equal(opened.Id, tables.Single().OpenOrderId);
+        Assert.NotNull(tables);
+        var occupiedTable = tables!.Single();
+        Assert.Equal("occupied", occupiedTable.Status);
+        Assert.Equal(opened.Id, occupiedTable.OpenOrderId);
     }
 
     [Fact]
@@ -143,49 +145,23 @@ public sealed class RestaurantFnbTests
             "RESTAURANT_TRANSACTION_NOT_PAID",
             await closePending.Content.ReadAsStringAsync());
 
-        var subtotal = product.HargaJual * 2m;
-        var paidResponse = await kasir.PostAsJsonAsync(
-            "/api/transactions",
-            new CreateTransactionDto
-            {
-                Items =
-                [
-                    new CreateTransactionItemDto
-                    {
-                        Id = product.Id,
-                        Nama = product.Nama,
-                        HargaJual = product.HargaJual,
-                        Qty = 2,
-                        Subtotal = subtotal
-                    }
-                ],
-                Subtotal = subtotal,
-                Disc = 0,
-                Tax = 0,
-                DiscAmt = 0,
-                TaxAmt = 0,
-                Total = subtotal,
-                MetodePembayaran = "tunai",
-                Dibayar = subtotal,
-                Kembalian = 0
-            });
-
-        Assert.Equal(HttpStatusCode.OK, paidResponse.StatusCode);
-        var transaction = await paidResponse.Content.ReadFromJsonAsync<TransactionDto>();
-        Assert.NotNull(transaction);
+        var paidTransactionId = await SeedPaidTransactionAsync(
+            factory,
+            product,
+            qty: 2);
 
         var closePaid = await kasir.PostAsJsonAsync(
             $"/api/restaurant/orders/{order.Id}/close",
-            new { transactionId = transaction!.Id });
+            new { transactionId = paidTransactionId });
         Assert.Equal(HttpStatusCode.OK, closePaid.StatusCode);
 
         var closed = await closePaid.Content.ReadFromJsonAsync<RestaurantOrderDto>();
         Assert.Equal(RestaurantConstants.OrderClosed, closed!.Status);
-        Assert.Equal(transaction.Id, closed.TransactionId);
+        Assert.Equal(paidTransactionId, closed.TransactionId);
 
         var repeatClose = await kasir.PostAsJsonAsync(
             $"/api/restaurant/orders/{order.Id}/close",
-            new { transactionId = transaction.Id });
+            new { transactionId = paidTransactionId });
         Assert.Equal(HttpStatusCode.OK, repeatClose.StatusCode);
 
         var tables = await kasir.GetFromJsonAsync<List<RestaurantTableDto>>(
@@ -211,37 +187,14 @@ public sealed class RestaurantFnbTests
             $"/api/restaurant/orders/{order.Id}/items",
             new { productId = productA.Id, qty = 1, note = "" });
 
-        var subtotal = productB.HargaJual;
-        var paidResponse = await kasir.PostAsJsonAsync(
-            "/api/transactions",
-            new CreateTransactionDto
-            {
-                Items =
-                [
-                    new CreateTransactionItemDto
-                    {
-                        Id = productB.Id,
-                        Nama = productB.Nama,
-                        HargaJual = productB.HargaJual,
-                        Qty = 1,
-                        Subtotal = subtotal
-                    }
-                ],
-                Subtotal = subtotal,
-                Disc = 0,
-                Tax = 0,
-                DiscAmt = 0,
-                TaxAmt = 0,
-                Total = subtotal,
-                MetodePembayaran = "tunai",
-                Dibayar = subtotal,
-                Kembalian = 0
-            });
+        var paidTransactionId = await SeedPaidTransactionAsync(
+            factory,
+            productB,
+            qty: 1);
 
-        var transaction = await paidResponse.Content.ReadFromJsonAsync<TransactionDto>();
         var close = await kasir.PostAsJsonAsync(
             $"/api/restaurant/orders/{order.Id}/close",
-            new { transactionId = transaction!.Id });
+            new { transactionId = paidTransactionId });
 
         Assert.Equal(HttpStatusCode.Conflict, close.StatusCode);
         Assert.Contains(
@@ -386,6 +339,60 @@ public sealed class RestaurantFnbTests
         db.Products.Add(product);
         await db.SaveChangesAsync();
         return product;
+    }
+
+    private static async Task<Guid> SeedPaidTransactionAsync(
+        RestaurantApiFactory factory,
+        Product product,
+        int qty)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await db.Tenants
+            .Where(x => x.Slug == "warung-lumpia-beef")
+            .Select(x => x.Id)
+            .SingleAsync();
+
+        var kasirId = await db.Users
+            .IgnoreQueryFilters()
+            .Where(x => x.TenantId == tenantId && x.Role == "kasir")
+            .Select(x => x.Id)
+            .SingleAsync();
+
+        using var tenantScope = scope.ServiceProvider
+            .GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(tenantId, "seed-fnb-paid-transaction");
+
+        var subtotal = product.HargaJual * qty;
+        var transaction = new Transaction
+        {
+            TenantId = tenantId,
+            NoTrx = $"TRX-FNB-PAID-{Guid.NewGuid():N}",
+            Kasir = "Kasir QA",
+            KasirId = kasirId,
+            Subtotal = subtotal,
+            Total = subtotal,
+            MetodePembayaran = "tunai",
+            Dibayar = subtotal,
+            Kembalian = 0,
+            Status = TransactionStatuses.Paid,
+            FinalizedAt = DateTime.UtcNow
+        };
+
+        db.Transactions.Add(transaction);
+        db.TransactionItems.Add(new TransactionItem
+        {
+            TenantId = tenantId,
+            TransactionId = transaction.Id,
+            ProductId = product.Id,
+            Nama = product.Nama,
+            HargaJual = product.HargaJual,
+            Qty = qty,
+            Subtotal = subtotal
+        });
+
+        await db.SaveChangesAsync();
+        return transaction.Id;
     }
 
     private static async Task<Guid> SeedPendingTransactionAsync(
