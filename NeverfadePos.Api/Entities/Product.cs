@@ -24,6 +24,12 @@ public class Product : BaseEntity
 
     public string Deskripsi { get; set; } = string.Empty;
 
+    public string Type { get; set; } = ProductTypes.Goods;
+
+    public bool TracksStock { get; set; } = true;
+
+    public int QuantityPrecision { get; set; }
+
     public Tenant? Tenant { get; set; }
 
     public ICollection<StockHistory> StockHistories { get; set; } = new List<StockHistory>();

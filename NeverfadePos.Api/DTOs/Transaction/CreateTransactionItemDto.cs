@@ -16,6 +16,9 @@ public sealed class CreateTransactionItemDto
     [Range(1, int.MaxValue)]
     public int Qty { get; set; }
 
+    [Range(0.001, double.MaxValue)]
+    public decimal? Quantity { get; set; }
+
     [Range(0, double.MaxValue)]
     public decimal Subtotal { get; set; }
 }

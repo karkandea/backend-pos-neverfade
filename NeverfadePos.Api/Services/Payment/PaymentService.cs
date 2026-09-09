@@ -129,6 +129,11 @@ internal sealed class PaymentService(
                     Nama = item.Product.Nama,
                     HargaJual = item.HargaJual,
                     Qty = item.Qty,
+                    Quantity = item.Quantity,
+                    ProductType = item.Product.Type,
+                    TracksStock = item.Product.TracksStock,
+                    QuantityPrecision = item.Product.QuantityPrecision,
+                    Unit = item.Product.Satuan,
                     Subtotal = item.Subtotal
                 }));
             db.Payments.Add(payment);
@@ -387,11 +392,36 @@ internal sealed class PaymentService(
 
         foreach (var item in transaction.Items)
         {
+            if (!item.TracksStock)
+            {
+                continue;
+            }
+
             var product = await db.Products.SingleAsync(
                 x => x.Id == item.ProductId,
                 cancellationToken);
 
-            if (product.Stok < item.Qty)
+            var quantity =
+                item.Quantity > 0m
+                    ? item.Quantity
+                    : item.Qty;
+
+            int stockUnits;
+            try
+            {
+                stockUnits = ProductQuantityRules.ToStockUnits(
+                    product,
+                    quantity);
+            }
+            catch (TenantApiException exception)
+            {
+                throw new PaymentApiException(
+                    exception.StatusCode,
+                    exception.Code,
+                    exception.Message);
+            }
+
+            if (product.Stok < stockUnits)
             {
                 throw new PaymentApiException(
                     StatusCodes.Status409Conflict,
@@ -399,14 +429,14 @@ internal sealed class PaymentService(
                     $"Stok produk {product.Nama} tidak mencukupi untuk finalisasi payment.");
             }
 
-            product.Stok -= item.Qty;
+            product.Stok -= stockUnits;
             db.StockHistories.Add(new NeverfadePos.Api.Entities.StockHistory
             {
                 TenantId = transaction.TenantId,
                 ProdukId = product.Id,
                 ProdukNama = product.Nama,
                 Tipe = "transaksi",
-                Jumlah = -item.Qty,
+                Jumlah = -stockUnits,
                 StokAkhir = product.Stok,
                 Keterangan = $"Transaksi {transaction.NoTrx}",
                 User = transaction.Kasir
@@ -510,18 +540,27 @@ internal sealed class PaymentService(
                 ?? throw new KeyNotFoundException(
                     $"Product {item.Id} tidak ditemukan.");
 
-            if (item.Qty <= 0 || product.Stok < item.Qty)
-            {
-                throw new InvalidOperationException(
-                    $"Qty atau stok produk {product.Nama} tidak valid.");
-            }
+            var quantity =
+                ProductQuantityRules.Resolve(
+                    product,
+                    item.Qty,
+                    item.Quantity,
+                    enforceStock: true);
 
-            var itemSubtotal = Money(product.HargaJual * item.Qty);
+            var legacyQty =
+                product.Type == ProductTypes.Goods
+                    ? ProductQuantityRules.ToStockUnits(
+                        product,
+                        quantity)
+                    : 1;
+
+            var itemSubtotal = Money(product.HargaJual * quantity);
             ValidateMoney("harga jual produk", item.HargaJual, product.HargaJual);
             ValidateMoney("subtotal item", item.Subtotal, itemSubtotal);
             items.Add(new DraftItem(
                 product,
-                item.Qty,
+                legacyQty,
+                quantity,
                 Money(product.HargaJual),
                 itemSubtotal));
         }
@@ -649,6 +688,7 @@ internal sealed class PaymentService(
     private sealed record DraftItem(
         NeverfadePos.Api.Entities.Product Product,
         int Qty,
+        decimal Quantity,
         decimal HargaJual,
         decimal Subtotal);
 

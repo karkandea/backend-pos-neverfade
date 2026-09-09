@@ -8,7 +8,20 @@ public class TransactionItemConfiguration : IEntityTypeConfiguration<Transaction
 {
     public void Configure(EntityTypeBuilder<TransactionItem> builder)
     {
-        builder.ToTable("transaction_items");
+        builder.ToTable(
+            "transaction_items",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_transaction_items_ProductType",
+                    "\"ProductType\" IN ('goods', 'service')");
+                table.HasCheckConstraint(
+                    "CK_transaction_items_Quantity",
+                    "\"Quantity\" > 0");
+                table.HasCheckConstraint(
+                    "CK_transaction_items_QuantityPrecision",
+                    "\"QuantityPrecision\" BETWEEN 0 AND 3");
+            });
 
         builder.HasKey(x => x.Id);
 
@@ -20,6 +33,16 @@ public class TransactionItemConfiguration : IEntityTypeConfiguration<Transaction
 
         builder.Property(x => x.HargaJual)
             .HasPrecision(18,2);
+
+        builder.Property(x => x.Quantity)
+            .HasPrecision(18,3);
+
+        builder.Property(x => x.ProductType)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        builder.Property(x => x.Unit)
+            .HasMaxLength(50);
 
         builder.Property(x => x.Subtotal)
             .HasPrecision(18,2);

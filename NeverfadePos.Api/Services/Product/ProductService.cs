@@ -65,6 +65,12 @@ public sealed class ProductService(
                 cancellationToken))
             throw new InvalidOperationException("Kode produk sudah digunakan.");
 
+        var profile = NormalizeProfile(
+            request.Type,
+            request.TracksStock,
+            request.QuantityPrecision,
+            request.Stok);
+
         var entity = new ProductEntity
         {
             TenantId = currentUser.TenantId.Value,
@@ -74,10 +80,13 @@ public sealed class ProductService(
             Kategori = request.Kategori,
             HargaModal = request.HargaModal,
             HargaJual = request.HargaJual,
-            Stok = request.Stok,
+            Stok = profile.Stok,
             Supplier = request.Supplier,
             Satuan = request.Satuan,
-            Deskripsi = request.Deskripsi
+            Deskripsi = request.Deskripsi,
+            Type = profile.Type,
+            TracksStock = profile.TracksStock,
+            QuantityPrecision = profile.QuantityPrecision
         };
 
         db.Products.Add(entity);
@@ -101,16 +110,34 @@ public sealed class ProductService(
                 cancellationToken))
             throw new InvalidOperationException("Kode produk sudah digunakan.");
 
+        var profile = NormalizeProfile(
+            request.Type,
+            request.TracksStock,
+            request.QuantityPrecision,
+            request.Stok);
+
+        if (entity.Type != profile.Type &&
+            entity.Stok != 0)
+        {
+            throw new TenantApiException(
+                StatusCodes.Status409Conflict,
+                "PRODUCT_TYPE_CHANGE_REQUIRES_ZERO_STOCK",
+                "Tipe produk hanya dapat diubah setelah stok menjadi 0.");
+        }
+
         entity.Kode = request.Kode;
         entity.Barcode = request.Barcode;
         entity.Nama = request.Nama;
         entity.Kategori = request.Kategori;
         entity.HargaModal = request.HargaModal;
         entity.HargaJual = request.HargaJual;
-        entity.Stok = request.Stok;
+        entity.Stok = profile.Stok;
         entity.Supplier = request.Supplier;
         entity.Satuan = request.Satuan;
         entity.Deskripsi = request.Deskripsi;
+        entity.Type = profile.Type;
+        entity.TracksStock = profile.TracksStock;
+        entity.QuantityPrecision = profile.QuantityPrecision;
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -140,6 +167,54 @@ public sealed class ProductService(
         }
     }
 
+    private static ProductProfile NormalizeProfile(
+        string? type,
+        bool tracksStock,
+        int quantityPrecision,
+        int stock)
+    {
+        var normalizedType = type?.Trim().ToLowerInvariant() ?? string.Empty;
+
+        if (!ProductTypes.IsValid(normalizedType))
+        {
+            throw new TenantApiException(
+                StatusCodes.Status400BadRequest,
+                "PRODUCT_TYPE_INVALID",
+                "Tipe produk harus goods atau service.");
+        }
+
+        if (quantityPrecision is < 0 or > ProductQuantityRules.MaxPrecision)
+        {
+            throw new TenantApiException(
+                StatusCodes.Status400BadRequest,
+                "PRODUCT_QUANTITY_PRECISION_INVALID",
+                "Presisi jumlah produk harus antara 0 sampai 3.");
+        }
+
+        if (normalizedType == ProductTypes.Goods)
+        {
+            if (quantityPrecision != 0)
+            {
+                throw new TenantApiException(
+                    StatusCodes.Status400BadRequest,
+                    "GOODS_QUANTITY_PRECISION_INVALID",
+                    "Barang harus menggunakan jumlah bilangan bulat.");
+            }
+
+            return new ProductProfile(
+                normalizedType,
+                tracksStock,
+                0,
+                stock);
+        }
+
+        return new ProductProfile(
+            ProductTypes.Service,
+            false,
+            quantityPrecision,
+            0);
+    }
+
     private static System.Linq.Expressions.Expression<Func<ProductEntity, ProductDto>> MapToDto()
     {
         return x => new ProductDto
@@ -155,7 +230,16 @@ public sealed class ProductService(
             Supplier = x.Supplier,
             Satuan = x.Satuan,
             Deskripsi = x.Deskripsi,
+            Type = x.Type,
+            TracksStock = x.TracksStock,
+            QuantityPrecision = x.QuantityPrecision,
             CreatedAt = x.CreatedAt
         };
     }
+
+    private sealed record ProductProfile(
+        string Type,
+        bool TracksStock,
+        int QuantityPrecision,
+        int Stok);
 }

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using NeverfadePos.Api.Entities;
 
 namespace NeverfadePos.Api.DTOs.Product;
 
@@ -36,4 +37,13 @@ public sealed class UpdateProductDto
 
     [MaxLength(1000)]
     public string Deskripsi { get; set; } = string.Empty;
+
+    [Required]
+    [MaxLength(20)]
+    public string Type { get; set; } = ProductTypes.Goods;
+
+    public bool TracksStock { get; set; } = true;
+
+    [Range(0, 3)]
+    public int QuantityPrecision { get; set; }
 }

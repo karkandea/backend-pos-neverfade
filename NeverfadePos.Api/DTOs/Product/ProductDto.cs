@@ -1,3 +1,5 @@
+using NeverfadePos.Api.Entities;
+
 namespace NeverfadePos.Api.DTOs.Product;
 
 public sealed class ProductDto
@@ -23,6 +25,12 @@ public sealed class ProductDto
     public string Satuan { get; set; } = string.Empty;
 
     public string Deskripsi { get; set; } = string.Empty;
+
+    public string Type { get; set; } = ProductTypes.Goods;
+
+    public bool TracksStock { get; set; } = true;
+
+    public int QuantityPrecision { get; set; }
 
     public DateTime CreatedAt { get; set; }
 }
