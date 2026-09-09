@@ -46,6 +46,9 @@ public class AppDbContext : DbContext
     public DbSet<RestaurantTable> RestaurantTables => Set<RestaurantTable>();
     public DbSet<RestaurantOrder> RestaurantOrders => Set<RestaurantOrder>();
     public DbSet<RestaurantOrderItem> RestaurantOrderItems => Set<RestaurantOrderItem>();
+    public DbSet<LaundryWorkOrder> LaundryWorkOrders => Set<LaundryWorkOrder>();
+    public DbSet<LaundryWorkOrderItem> LaundryWorkOrderItems => Set<LaundryWorkOrderItem>();
+    public DbSet<LaundryWorkOrderStatusHistory> LaundryWorkOrderStatusHistory => Set<LaundryWorkOrderStatusHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

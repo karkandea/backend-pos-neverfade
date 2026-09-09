@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
+using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
@@ -173,20 +174,22 @@ public sealed class TransactionService(
                 ?? throw new KeyNotFoundException(
                     $"Product {item.Id} tidak ditemukan.");
 
-            if (item.Qty <= 0)
-            {
-                throw new InvalidOperationException(
-                    $"Qty produk {product.Nama} harus lebih dari 0.");
-            }
+            var quantity =
+                ProductQuantityRules.Resolve(
+                    product,
+                    item.Qty,
+                    item.Quantity,
+                    enforceStock: true);
 
-            if (product.Stok < item.Qty)
-            {
-                throw new InvalidOperationException(
-                    $"Stok produk {product.Nama} tidak mencukupi.");
-            }
+            var legacyQty =
+                product.Type == ProductTypes.Goods
+                    ? ProductQuantityRules.ToStockUnits(
+                        product,
+                        quantity)
+                    : 1;
 
             var itemSubtotal =
-                Money(product.HargaJual * item.Qty);
+                Money(product.HargaJual * quantity);
 
             ValidateMoney(
                 "harga jual produk",
@@ -201,7 +204,8 @@ public sealed class TransactionService(
             resolvedItems.Add(
                 new ResolvedTransactionItem(
                     product,
-                    item.Qty,
+                    legacyQty,
+                    quantity,
                     Money(product.HargaJual),
                     itemSubtotal));
         }
@@ -341,9 +345,6 @@ public sealed class TransactionService(
 
         foreach (var item in resolvedItems)
         {
-            item.Product.Stok -=
-                item.Qty;
-
             db.TransactionItems.Add(
                 new NeverfadePos.Api.Entities.TransactionItem
                 {
@@ -365,9 +366,37 @@ public sealed class TransactionService(
                     Qty =
                         item.Qty,
 
+                    Quantity =
+                        item.Quantity,
+
+                    ProductType =
+                        item.Product.Type,
+
+                    TracksStock =
+                        item.Product.TracksStock,
+
+                    QuantityPrecision =
+                        item.Product.QuantityPrecision,
+
+                    Unit =
+                        item.Product.Satuan,
+
                     Subtotal =
                         item.Subtotal
                 });
+
+            if (!item.Product.TracksStock)
+            {
+                continue;
+            }
+
+            var stockUnits =
+                ProductQuantityRules.ToStockUnits(
+                    item.Product,
+                    item.Quantity);
+
+            item.Product.Stok -=
+                stockUnits;
 
             db.StockHistories.Add(
                 new NeverfadePos.Api.Entities.StockHistory
@@ -385,7 +414,7 @@ public sealed class TransactionService(
                         "transaksi",
 
                     Jumlah =
-                        -item.Qty,
+                        -stockUnits,
 
                     StokAkhir =
                         item.Product.Stok,
@@ -450,6 +479,7 @@ public sealed class TransactionService(
         ResolvedTransactionItem(
             NeverfadePos.Api.Entities.Product Product,
             int Qty,
+            decimal Quantity,
             decimal HargaJual,
             decimal Subtotal);
 
@@ -476,6 +506,11 @@ public sealed class TransactionService(
                         Nama = i.Nama,
                         HargaJual = i.HargaJual,
                         Qty = i.Qty,
+                        Quantity = i.Quantity > 0m ? i.Quantity : i.Qty,
+                        ProductType = i.ProductType,
+                        TracksStock = i.TracksStock,
+                        QuantityPrecision = i.QuantityPrecision,
+                        Unit = i.Unit,
                         Subtotal = i.Subtotal
                     })
                 .ToList(),
@@ -518,6 +553,11 @@ public sealed class TransactionService(
                         Nama = i.Nama,
                         HargaJual = i.HargaJual,
                         Qty = i.Qty,
+                        Quantity = i.Quantity > 0m ? i.Quantity : i.Qty,
+                        ProductType = i.ProductType,
+                        TracksStock = i.TracksStock,
+                        QuantityPrecision = i.QuantityPrecision,
+                        Unit = i.Unit,
                         Subtotal = i.Subtotal
                     })
                 .ToList(),
