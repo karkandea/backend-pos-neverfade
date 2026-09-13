@@ -20,17 +20,20 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.HasIndex(x => x.ProviderReferenceId).IsUnique();
         builder.HasIndex(x => x.ProviderPaymentRequestId).IsUnique();
         builder.HasIndex(x => x.ProviderPaymentId).IsUnique();
+        builder.HasIndex(x => x.ProviderSessionId).IsUnique();
         builder.HasIndex(x => new { x.TenantId, x.Status, x.CreatedAt });
 
         builder.Property(x => x.Provider).HasMaxLength(30).IsRequired();
         builder.Property(x => x.ProviderReferenceId).HasMaxLength(255).IsRequired();
         builder.Property(x => x.ProviderPaymentRequestId).HasMaxLength(100);
         builder.Property(x => x.ProviderPaymentId).HasMaxLength(100);
+        builder.Property(x => x.ProviderSessionId).HasMaxLength(100);
         builder.Property(x => x.Method).HasMaxLength(30).IsRequired();
         builder.Property(x => x.Currency).HasMaxLength(3).IsRequired();
         builder.Property(x => x.Amount).HasPrecision(18, 2);
         builder.Property(x => x.Status).HasMaxLength(20).IsRequired();
         builder.Property(x => x.FailureCode).HasMaxLength(100);
+        builder.Property(x => x.CheckoutUrl).HasMaxLength(2000);
 
         builder.HasOne(x => x.Tenant)
             .WithMany(x => x.Payments)

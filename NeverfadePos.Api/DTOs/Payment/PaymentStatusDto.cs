@@ -12,11 +12,17 @@ public sealed class PaymentStatusDto
 
     public string Currency { get; set; } = string.Empty;
 
+    public string Method { get; set; } = string.Empty;
+
     public string ProviderPaymentRequestId { get; set; } = string.Empty;
 
     public string ProviderReferenceId { get; set; } = string.Empty;
 
+    public string? ProviderSessionId { get; set; }
+
     public string? QrString { get; set; }
+
+    public string? CheckoutUrl { get; set; }
 
     public DateTime? ExpiresAt { get; set; }
 
