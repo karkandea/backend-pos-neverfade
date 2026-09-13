@@ -3,6 +3,7 @@ namespace NeverfadePos.Api.BusinessModes;
 public static class BusinessTypes
 {
     public const string GeneralRetail = "general_retail";
+    public const string FashionRetail = "fashion_retail";
     public const string FoodBeverage = "food_beverage";
     public const string Laundry = "laundry";
     public const string SalonBarbershop = "salon_barbershop";
@@ -11,6 +12,7 @@ public static class BusinessTypes
         new HashSet<string>(StringComparer.Ordinal)
         {
             GeneralRetail,
+            FashionRetail,
             FoodBeverage,
             Laundry,
             SalonBarbershop
@@ -32,6 +34,8 @@ public static class TenantCapabilities
     public const string KitchenQueue = "kitchen_queue";
     public const string WorkOrders = "work_orders";
     public const string Appointments = "appointments";
+    public const string ProductVariants = "product_variants";
+    public const string MultiPricing = "multi_pricing";
 }
 
 public static class BusinessCapabilityPresets
@@ -50,6 +54,12 @@ public static class BusinessCapabilityPresets
         new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
             [BusinessTypes.GeneralRetail] = Common,
+            [BusinessTypes.FashionRetail] =
+            [
+                ..Common,
+                TenantCapabilities.ProductVariants,
+                TenantCapabilities.MultiPricing
+            ],
             [BusinessTypes.FoodBeverage] =
             [
                 ..Common,

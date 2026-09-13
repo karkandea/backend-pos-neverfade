@@ -8,6 +8,12 @@ public class StockHistory : BaseEntity
 
     public string ProdukNama { get; set; } = string.Empty;
 
+    public Guid? ProductVariantId { get; set; }
+
+    public string VariantSku { get; set; } = string.Empty;
+
+    public string VariantLabel { get; set; } = string.Empty;
+
     public string Tipe { get; set; } = string.Empty;
 
     public int Jumlah { get; set; }

@@ -44,5 +44,8 @@ public class Tenant
     public ICollection<RestaurantTable> RestaurantTables { get; set; } = new List<RestaurantTable>();
     public ICollection<RestaurantOrder> RestaurantOrders { get; set; } = new List<RestaurantOrder>();
     public ICollection<RestaurantOrderItem> RestaurantOrderItems { get; set; } = new List<RestaurantOrderItem>();
+    public ICollection<ProductVariant> ProductVariants { get; set; } = new List<ProductVariant>();
+    public ICollection<PriceLevel> PriceLevels { get; set; } = new List<PriceLevel>();
+    public ICollection<ProductPrice> ProductPrices { get; set; } = new List<ProductPrice>();
     public ICollection<PlatformAuditEvent> PlatformAuditEvents { get; set; } = new List<PlatformAuditEvent>();
 }

@@ -34,6 +34,18 @@ public class TransactionItemConfiguration : IEntityTypeConfiguration<Transaction
         builder.Property(x => x.HargaJual)
             .HasPrecision(18,2);
 
+        builder.Property(x => x.BasePrice)
+            .HasPrecision(18,2);
+
+        builder.Property(x => x.VariantSku)
+            .HasMaxLength(100);
+
+        builder.Property(x => x.VariantLabel)
+            .HasMaxLength(200);
+
+        builder.Property(x => x.PriceLevelName)
+            .HasMaxLength(100);
+
         builder.Property(x => x.Quantity)
             .HasPrecision(18,3);
 

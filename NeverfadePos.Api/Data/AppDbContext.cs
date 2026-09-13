@@ -23,6 +23,9 @@ public class AppDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Settings> Settings => Set<Settings>();
     public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
+    public DbSet<PriceLevel> PriceLevels => Set<PriceLevel>();
+    public DbSet<ProductPrice> ProductPrices => Set<ProductPrice>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Karyawan> Karyawans => Set<Karyawan>();
     public DbSet<Absensi> Absensis => Set<Absensi>();

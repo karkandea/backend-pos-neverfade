@@ -35,4 +35,8 @@ public class Product : BaseEntity
     public ICollection<StockHistory> StockHistories { get; set; } = new List<StockHistory>();
 
     public ICollection<TransactionItem> TransactionItems { get; set; } = new List<TransactionItem>();
+
+    public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
+
+    public ICollection<ProductPrice> Prices { get; set; } = new List<ProductPrice>();
 }
