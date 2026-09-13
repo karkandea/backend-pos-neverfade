@@ -7,4 +7,7 @@ public interface IPaymentModeGate
     PaymentCapabilitiesDto GetCapabilities(Guid tenantId);
 
     void EnsureQrisAllowed(Guid tenantId);
+
+    void EnsureHostedCheckoutAllowed(Guid tenantId) =>
+        EnsureQrisAllowed(tenantId);
 }

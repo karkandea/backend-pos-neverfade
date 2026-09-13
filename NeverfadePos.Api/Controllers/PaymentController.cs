@@ -42,6 +42,21 @@ public sealed class PaymentController(
             cancellationToken));
     }
 
+    [HttpPost("hosted")]
+    public async Task<ActionResult<HostedPaymentDto>> CreateHosted(
+        CreateTransactionDto request,
+        CancellationToken cancellationToken)
+    {
+        await ReconcileExpiredPaymentsAsync(
+            null,
+            false,
+            cancellationToken);
+
+        return Ok(await paymentService.CreateHostedAsync(
+            request,
+            cancellationToken));
+    }
+
     [HttpPost("qa/simulate-scan")]
     [Authorize(Roles = "owner,admin")]
     public async Task<ActionResult<PaymentStatusDto>> SimulateSandboxScan(
@@ -105,6 +120,7 @@ public sealed class PaymentController(
         var query = db.Payments
             .Include(x => x.Transaction)
             .Where(x =>
+                x.Method == PaymentConstants.MethodQris &&
                 x.Status == PaymentConstants.StatusPending &&
                 !string.IsNullOrEmpty(x.ProviderPaymentRequestId));
 

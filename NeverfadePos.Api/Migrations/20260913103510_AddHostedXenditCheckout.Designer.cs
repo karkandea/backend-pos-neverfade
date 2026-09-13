@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NeverfadePos.Api.Data;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NeverfadePos.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260913103510_AddHostedXenditCheckout")]
+    partial class AddHostedXenditCheckout
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -906,44 +909,6 @@ namespace NeverfadePos.Api.Migrations
                         });
                 });
 
-            modelBuilder.Entity("NeverfadePos.Api.Entities.PriceLevel", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "Code")
-                        .IsUnique();
-
-                    b.ToTable("price_levels", (string)null);
-                });
-
             modelBuilder.Entity("NeverfadePos.Api.Entities.Product", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1029,158 +994,6 @@ namespace NeverfadePos.Api.Migrations
                             t.HasCheckConstraint("CK_products_ServiceStock", "\"Type\" <> 'service' OR \"TracksStock\" = FALSE");
 
                             t.HasCheckConstraint("CK_products_Type", "\"Type\" IN ('goods', 'service')");
-                        });
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.ProductPrice", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal>("MinQuantity")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("numeric(18,3)");
-
-                    b.Property<Guid>("PriceLevelId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ProductVariantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("UnitPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PriceLevelId");
-
-                    b.HasIndex("ProductId");
-
-                    b.HasIndex("ProductVariantId");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ProductId");
-
-                    b.HasIndex("TenantId", "ProductId", "PriceLevelId")
-                        .IsUnique()
-                        .HasFilter("\"ProductVariantId\" IS NULL");
-
-                    b.HasIndex("TenantId", "ProductVariantId", "PriceLevelId")
-                        .IsUnique()
-                        .HasFilter("\"ProductVariantId\" IS NOT NULL");
-
-                    b.ToTable("product_prices", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_product_prices_MinQuantity", "\"MinQuantity\" > 0");
-
-                            t.HasCheckConstraint("CK_product_prices_UnitPrice", "\"UnitPrice\" >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.ProductVariant", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("Active")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Barcode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal?>("HargaJual")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal?>("HargaModal")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Option1Name")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("Option1Value")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Option2Name")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("Option2Value")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Option3Name")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("Option3Value")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Sku")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<int>("Stok")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProductId");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "Barcode")
-                        .IsUnique()
-                        .HasFilter("\"Barcode\" <> ''");
-
-                    b.HasIndex("TenantId", "ProductId");
-
-                    b.HasIndex("TenantId", "Sku")
-                        .IsUnique();
-
-                    b.ToTable("product_variants", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_product_variants_Stock", "\"Stok\" >= 0");
                         });
                 });
 
@@ -1372,169 +1185,6 @@ namespace NeverfadePos.Api.Migrations
                         });
                 });
 
-            modelBuilder.Entity("NeverfadePos.Api.Entities.RetailReturn", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedByName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("CreatedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Notes")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<decimal>("RefundAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<string>("ReturnNumber")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TransactionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("TransactionNumber")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TransactionId");
-
-                    b.HasIndex("TenantId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "ReturnNumber")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "TransactionId");
-
-                    b.ToTable("retail_returns", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_retail_returns_RefundAmount", "\"RefundAmount\" >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.RetailReturnItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal>("OriginalUnitPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<Guid?>("OriginalVariantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("OriginalVariantLabel")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("OriginalVariantSku")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ProductName")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<int>("Quantity")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal>("RefundAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<Guid?>("ReplacementVariantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ReplacementVariantLabel")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("ReplacementVariantSku")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<bool>("Restock")
-                        .HasColumnType("boolean");
-
-                    b.Property<Guid>("RetailReturnId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TransactionItemId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProductId");
-
-                    b.HasIndex("RetailReturnId");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TransactionItemId");
-
-                    b.HasIndex("TenantId", "RetailReturnId");
-
-                    b.HasIndex("TenantId", "TransactionItemId");
-
-                    b.ToTable("retail_return_items", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_retail_return_items_Quantity", "\"Quantity\" > 0");
-                        });
-                });
-
             modelBuilder.Entity("NeverfadePos.Api.Entities.Settings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1721,9 +1371,6 @@ namespace NeverfadePos.Api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
-                    b.Property<Guid?>("ProductVariantId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid>("ProdukId")
                         .HasColumnType("uuid");
 
@@ -1744,16 +1391,6 @@ namespace NeverfadePos.Api.Migrations
                         .HasColumnType("character varying(50)");
 
                     b.Property<string>("User")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("VariantLabel")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("VariantSku")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -1816,7 +1453,7 @@ namespace NeverfadePos.Api.Migrations
 
                     b.ToTable("tenants", null, t =>
                         {
-                            t.HasCheckConstraint("CK_tenants_BusinessType", "\"BusinessType\" IN ('general_retail', 'fashion_retail', 'food_beverage', 'laundry', 'salon_barbershop')");
+                            t.HasCheckConstraint("CK_tenants_BusinessType", "\"BusinessType\" IN ('general_retail', 'food_beverage', 'laundry', 'salon_barbershop')");
 
                             t.HasCheckConstraint("CK_tenants_Status", "\"Status\" IN ('active', 'suspended')");
                         });
@@ -1964,10 +1601,6 @@ namespace NeverfadePos.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("BasePrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1980,14 +1613,6 @@ namespace NeverfadePos.Api.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<Guid?>("PriceLevelId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PriceLevelName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
@@ -1995,9 +1620,6 @@ namespace NeverfadePos.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
-
-                    b.Property<Guid?>("ProductVariantId")
-                        .HasColumnType("uuid");
 
                     b.Property<int>("Qty")
                         .HasColumnType("integer");
@@ -2026,16 +1648,6 @@ namespace NeverfadePos.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
-
-                    b.Property<string>("VariantLabel")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("VariantSku")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
 
                     b.HasKey("Id");
 
@@ -2589,17 +2201,6 @@ namespace NeverfadePos.Api.Migrations
                     b.Navigation("Tenant");
                 });
 
-            modelBuilder.Entity("NeverfadePos.Api.Entities.PriceLevel", b =>
-                {
-                    b.HasOne("NeverfadePos.Api.Entities.Tenant", "Tenant")
-                        .WithMany("PriceLevels")
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("NeverfadePos.Api.Entities.Product", b =>
                 {
                     b.HasOne("NeverfadePos.Api.Entities.Tenant", "Tenant")
@@ -2607,59 +2208,6 @@ namespace NeverfadePos.Api.Migrations
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Tenant");
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.ProductPrice", b =>
-                {
-                    b.HasOne("NeverfadePos.Api.Entities.PriceLevel", "PriceLevel")
-                        .WithMany("Prices")
-                        .HasForeignKey("PriceLevelId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("NeverfadePos.Api.Entities.Product", "Product")
-                        .WithMany("Prices")
-                        .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("NeverfadePos.Api.Entities.ProductVariant", "ProductVariant")
-                        .WithMany("Prices")
-                        .HasForeignKey("ProductVariantId")
-                        .OnDelete(DeleteBehavior.Cascade);
-
-                    b.HasOne("NeverfadePos.Api.Entities.Tenant", "Tenant")
-                        .WithMany("ProductPrices")
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("PriceLevel");
-
-                    b.Navigation("Product");
-
-                    b.Navigation("ProductVariant");
-
-                    b.Navigation("Tenant");
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.ProductVariant", b =>
-                {
-                    b.HasOne("NeverfadePos.Api.Entities.Product", "Product")
-                        .WithMany("Variants")
-                        .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("NeverfadePos.Api.Entities.Tenant", "Tenant")
-                        .WithMany("ProductVariants")
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Product");
 
                     b.Navigation("Tenant");
                 });
@@ -2734,52 +2282,6 @@ namespace NeverfadePos.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Tenant");
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.RetailReturn", b =>
-                {
-                    b.HasOne("NeverfadePos.Api.Entities.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("NeverfadePos.Api.Entities.Transaction", "Transaction")
-                        .WithMany()
-                        .HasForeignKey("TransactionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Tenant");
-
-                    b.Navigation("Transaction");
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.RetailReturnItem", b =>
-                {
-                    b.HasOne("NeverfadePos.Api.Entities.Product", "Product")
-                        .WithMany()
-                        .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("NeverfadePos.Api.Entities.RetailReturn", "RetailReturn")
-                        .WithMany("Items")
-                        .HasForeignKey("RetailReturnId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("NeverfadePos.Api.Entities.TransactionItem", "TransactionItem")
-                        .WithMany()
-                        .HasForeignKey("TransactionItemId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Product");
-
-                    b.Navigation("RetailReturn");
-
-                    b.Navigation("TransactionItem");
                 });
 
             modelBuilder.Entity("NeverfadePos.Api.Entities.Settings", b =>
@@ -3052,25 +2554,11 @@ namespace NeverfadePos.Api.Migrations
                     b.Navigation("VerifiedWithdrawalBankAccounts");
                 });
 
-            modelBuilder.Entity("NeverfadePos.Api.Entities.PriceLevel", b =>
-                {
-                    b.Navigation("Prices");
-                });
-
             modelBuilder.Entity("NeverfadePos.Api.Entities.Product", b =>
                 {
-                    b.Navigation("Prices");
-
                     b.Navigation("StockHistories");
 
                     b.Navigation("TransactionItems");
-
-                    b.Navigation("Variants");
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.ProductVariant", b =>
-                {
-                    b.Navigation("Prices");
                 });
 
             modelBuilder.Entity("NeverfadePos.Api.Entities.RestaurantOrder", b =>
@@ -3081,11 +2569,6 @@ namespace NeverfadePos.Api.Migrations
             modelBuilder.Entity("NeverfadePos.Api.Entities.RestaurantTable", b =>
                 {
                     b.Navigation("Orders");
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.RetailReturn", b =>
-                {
-                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("NeverfadePos.Api.Entities.SharedPosDevice", b =>
@@ -3118,12 +2601,6 @@ namespace NeverfadePos.Api.Migrations
                     b.Navigation("Payments");
 
                     b.Navigation("PlatformAuditEvents");
-
-                    b.Navigation("PriceLevels");
-
-                    b.Navigation("ProductPrices");
-
-                    b.Navigation("ProductVariants");
 
                     b.Navigation("Products");
 

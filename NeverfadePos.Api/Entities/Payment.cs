@@ -14,6 +14,8 @@ public sealed class Payment : BaseEntity
 
     public string? ProviderPaymentId { get; set; }
 
+    public string? ProviderSessionId { get; set; }
+
     public string Method { get; set; } = "qris";
 
     public string Currency { get; set; } = "IDR";
@@ -25,6 +27,8 @@ public sealed class Payment : BaseEntity
     public string? FailureCode { get; set; }
 
     public string? QrString { get; set; }
+
+    public string? CheckoutUrl { get; set; }
 
     public DateTime? ExpiresAt { get; set; }
 

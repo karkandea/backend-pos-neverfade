@@ -10,6 +10,7 @@ public sealed class PaymentModeGate : IPaymentModeGate
     private readonly PaymentMode _mode;
     private readonly HashSet<Guid> _sandboxAllowedTenantIds;
     private readonly HashSet<Guid> _liveAllowedTenantIds;
+    private readonly bool _hostedCheckoutConfigured;
 
     public PaymentModeGate(
         IOptions<PaymentModeOptions> paymentOptions,
@@ -23,6 +24,8 @@ public sealed class PaymentModeGate : IPaymentModeGate
         _liveAllowedTenantIds = ParseTenantIds(
             options.LiveAllowedTenantIds,
             "Payments:LiveAllowedTenantIds");
+        _hostedCheckoutConfigured = IsValidHostedReturnUrl(
+            xenditOptions.Value.CheckoutReturnUrl);
 
         ValidateConfiguration(options, xenditOptions.Value);
     }
@@ -42,9 +45,23 @@ public sealed class PaymentModeGate : IPaymentModeGate
         return new PaymentCapabilitiesDto
         {
             QrisEnabled = enabled,
+            HostedCheckoutEnabled = enabled && _hostedCheckoutConfigured,
             Mode = _mode.ToString().ToLowerInvariant(),
             IsSandbox = sandbox
         };
+    }
+
+    public void EnsureHostedCheckoutAllowed(Guid tenantId)
+    {
+        EnsureQrisAllowed(tenantId);
+
+        if (!_hostedCheckoutConfigured)
+        {
+            throw new PaymentApiException(
+                StatusCodes.Status503ServiceUnavailable,
+                "PAYMENT_HOSTED_CHECKOUT_DISABLED",
+                "Xendit Checkout belum dikonfigurasi.");
+        }
     }
 
     public void EnsureQrisAllowed(Guid tenantId)
@@ -130,6 +147,10 @@ public sealed class PaymentModeGate : IPaymentModeGate
                 "Live mode requires an Xendit production secret key.");
         }
     }
+
+    private static bool IsValidHostedReturnUrl(string? value) =>
+        Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri) &&
+        uri.Scheme == Uri.UriSchemeHttps;
 
     private static PaymentMode ParseMode(string? value)
     {
