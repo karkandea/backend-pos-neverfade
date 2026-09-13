@@ -12,6 +12,8 @@ public sealed class PaymentRoute
 
     public string ProviderPaymentRequestId { get; set; } = string.Empty;
 
+    public string? ProviderReferenceId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public Tenant? Tenant { get; set; }

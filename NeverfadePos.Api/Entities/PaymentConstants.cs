@@ -4,6 +4,7 @@ public static class PaymentConstants
 {
     public const string Provider = "xendit";
     public const string MethodQris = "qris";
+    public const string MethodHostedCheckout = "xendit_hosted";
     public const string CurrencyIdr = "IDR";
 
     public const string StatusCreating = "creating";
