@@ -242,6 +242,11 @@ public sealed class XenditDashboardWebhookCompatibilityTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<HostedPaymentDto> CreateHostedAsync(
+            CreateTransactionDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<PaymentStatusDto> GetStatusAsync(
             Guid paymentId,
             CancellationToken cancellationToken = default) =>
