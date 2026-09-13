@@ -15,10 +15,13 @@ public sealed class PaymentRouteConfiguration
         builder.HasIndex(x => x.PaymentId).IsUnique();
         builder.HasIndex(x => new { x.Provider, x.ProviderPaymentRequestId })
             .IsUnique();
+        builder.HasIndex(x => new { x.Provider, x.ProviderReferenceId })
+            .IsUnique();
         builder.HasIndex(x => x.TenantId);
 
         builder.Property(x => x.Provider).HasMaxLength(30).IsRequired();
         builder.Property(x => x.ProviderPaymentRequestId).HasMaxLength(100).IsRequired();
+        builder.Property(x => x.ProviderReferenceId).HasMaxLength(255);
 
         builder.HasOne(x => x.Tenant)
             .WithMany(x => x.PaymentRoutes)

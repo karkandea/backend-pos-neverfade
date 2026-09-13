@@ -17,6 +17,29 @@ public interface IXenditPaymentProvider
     Task CancelPaymentRequestAsync(
         string paymentRequestId,
         CancellationToken cancellationToken = default);
+
+    Task<XenditHostedSessionResult> CreateHostedSessionAsync(
+        string referenceId,
+        decimal amount,
+        string description,
+        DateTime expiresAt,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    Task<XenditHostedSessionResult> GetHostedSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    Task<XenditHostedSessionResult> CancelHostedSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    Task<XenditPaymentResult> GetPaymentAsync(
+        string paymentId,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
 }
 
 public sealed record XenditPaymentRequestResult(
@@ -26,3 +49,22 @@ public sealed record XenditPaymentRequestResult(
     string Status,
     string? QrString,
     DateTime? ExpiresAt);
+
+public sealed record XenditHostedSessionResult(
+    string SessionId,
+    string ReferenceId,
+    decimal Amount,
+    string Status,
+    string? PaymentLinkUrl,
+    DateTime? ExpiresAt,
+    string? PaymentRequestId,
+    string? PaymentId);
+
+public sealed record XenditPaymentResult(
+    string PaymentId,
+    string ReferenceId,
+    string PaymentRequestId,
+    decimal RequestAmount,
+    string Status,
+    string ChannelCode,
+    string Currency);
