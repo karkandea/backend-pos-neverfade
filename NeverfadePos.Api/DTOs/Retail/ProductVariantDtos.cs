@@ -42,3 +42,18 @@ public sealed class UpdateProductVariantDto : CreateProductVariantDto
 {
     public bool Active { get; set; } = true;
 }
+
+public sealed class AdjustVariantStockDto
+{
+    [Required, MaxLength(50)]
+    public string Tipe { get; set; } = string.Empty;
+
+    [Range(0, int.MaxValue)]
+    public int Jumlah { get; set; }
+
+    [Range(0, int.MaxValue)]
+    public int? StokFinal { get; set; }
+
+    [MaxLength(500)]
+    public string Keterangan { get; set; } = string.Empty;
+}

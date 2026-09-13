@@ -8,6 +8,7 @@ public interface IRetailCatalogService
     Task<List<ProductVariantDto>> GetVariantsAsync(Guid productId, CancellationToken cancellationToken = default);
     Task<ProductVariantDto> CreateVariantAsync(CreateProductVariantDto request, CancellationToken cancellationToken = default);
     Task<ProductVariantDto> UpdateVariantAsync(Guid id, UpdateProductVariantDto request, CancellationToken cancellationToken = default);
+    Task<ProductVariantDto> AdjustVariantStockAsync(Guid id, AdjustVariantStockDto request, CancellationToken cancellationToken = default);
     Task DeleteVariantAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<List<PriceLevelDto>> GetPriceLevelsAsync(CancellationToken cancellationToken = default);

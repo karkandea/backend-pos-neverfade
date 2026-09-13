@@ -4,12 +4,14 @@ using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
+using NeverfadePos.Api.Services.Retail;
 
 namespace NeverfadePos.Api.Services.Transaction;
 
 public sealed class TransactionService(
     AppDbContext db,
-    CurrentUser currentUser)
+    CurrentUser currentUser,
+    IRetailSaleResolver retailSaleResolver)
     : ITransactionService
 {
     public async Task<List<TransactionDto>> GetAllAsync(
@@ -167,47 +169,36 @@ public sealed class TransactionService(
 
         foreach (var item in request.Items)
         {
-            var product = await db.Products
-                .FirstOrDefaultAsync(
-                    x => x.Id == item.Id,
-                    cancellationToken)
-                ?? throw new KeyNotFoundException(
-                    $"Product {item.Id} tidak ditemukan.");
-
-            var quantity =
-                ProductQuantityRules.Resolve(
-                    product,
-                    item.Qty,
-                    item.Quantity,
-                    enforceStock: true);
-
-            var legacyQty =
-                product.Type == ProductTypes.Goods
-                    ? ProductQuantityRules.ToStockUnits(
-                        product,
-                        quantity)
-                    : 1;
-
-            var itemSubtotal =
-                Money(product.HargaJual * quantity);
+            var resolved = await retailSaleResolver.ResolveAsync(
+                item.Id,
+                item.Qty,
+                item.Quantity,
+                item.ProductVariantId,
+                item.PriceLevelId,
+                enforceStock: true,
+                cancellationToken);
 
             ValidateMoney(
                 "harga jual produk",
                 item.HargaJual,
-                product.HargaJual);
+                resolved.UnitPrice);
 
             ValidateMoney(
                 "subtotal item",
                 item.Subtotal,
-                itemSubtotal);
+                resolved.Subtotal);
 
             resolvedItems.Add(
                 new ResolvedTransactionItem(
-                    product,
-                    legacyQty,
-                    quantity,
-                    Money(product.HargaJual),
-                    itemSubtotal));
+                    resolved.Product,
+                    resolved.Variant,
+                    resolved.LegacyQty,
+                    resolved.Quantity,
+                    resolved.BasePrice,
+                    resolved.UnitPrice,
+                    resolved.PriceLevelId,
+                    resolved.PriceLevelName,
+                    resolved.Subtotal));
         }
 
         var subtotal =
@@ -363,6 +354,24 @@ public sealed class TransactionService(
                     HargaJual =
                         item.HargaJual,
 
+                    ProductVariantId =
+                        item.Variant?.Id,
+
+                    VariantSku =
+                        item.Variant?.Sku ?? string.Empty,
+
+                    VariantLabel =
+                        item.Variant?.Label ?? string.Empty,
+
+                    BasePrice =
+                        item.BasePrice,
+
+                    PriceLevelId =
+                        item.PriceLevelId,
+
+                    PriceLevelName =
+                        item.PriceLevelName,
+
                     Qty =
                         item.Qty,
 
@@ -395,6 +404,11 @@ public sealed class TransactionService(
                     item.Product,
                     item.Quantity);
 
+            if (item.Variant is not null)
+            {
+                item.Variant.Stok -= stockUnits;
+            }
+
             item.Product.Stok -=
                 stockUnits;
 
@@ -409,6 +423,15 @@ public sealed class TransactionService(
 
                     ProdukNama =
                         item.Product.Nama,
+
+                    ProductVariantId =
+                        item.Variant?.Id,
+
+                    VariantSku =
+                        item.Variant?.Sku ?? string.Empty,
+
+                    VariantLabel =
+                        item.Variant?.Label ?? string.Empty,
 
                     Tipe =
                         "transaksi",
@@ -478,9 +501,13 @@ public sealed class TransactionService(
     private sealed record
         ResolvedTransactionItem(
             NeverfadePos.Api.Entities.Product Product,
+            ProductVariant? Variant,
             int Qty,
             decimal Quantity,
+            decimal BasePrice,
             decimal HargaJual,
+            Guid? PriceLevelId,
+            string PriceLevelName,
             decimal Subtotal);
 
     private static System.Linq.Expressions.Expression<
@@ -505,6 +532,12 @@ public sealed class TransactionService(
                         Id = i.ProductId,
                         Nama = i.Nama,
                         HargaJual = i.HargaJual,
+                        ProductVariantId = i.ProductVariantId,
+                        VariantSku = i.VariantSku,
+                        VariantLabel = i.VariantLabel,
+                        BasePrice = i.BasePrice > 0m ? i.BasePrice : i.HargaJual,
+                        PriceLevelId = i.PriceLevelId,
+                        PriceLevelName = i.PriceLevelName,
                         Qty = i.Qty,
                         Quantity = i.Quantity > 0m ? i.Quantity : i.Qty,
                         ProductType = i.ProductType,
@@ -552,6 +585,12 @@ public sealed class TransactionService(
                         Id = i.ProductId,
                         Nama = i.Nama,
                         HargaJual = i.HargaJual,
+                        ProductVariantId = i.ProductVariantId,
+                        VariantSku = i.VariantSku,
+                        VariantLabel = i.VariantLabel,
+                        BasePrice = i.BasePrice > 0m ? i.BasePrice : i.HargaJual,
+                        PriceLevelId = i.PriceLevelId,
+                        PriceLevelName = i.PriceLevelName,
                         Qty = i.Qty,
                         Quantity = i.Quantity > 0m ? i.Quantity : i.Qty,
                         ProductType = i.ProductType,

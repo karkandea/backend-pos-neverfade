@@ -38,6 +38,14 @@ public sealed class StockHistoryService(
                 cancellationToken)
             ?? throw new KeyNotFoundException("Product tidak ditemukan.");
 
+        if (await db.ProductVariants.AnyAsync(
+                x => x.ProductId == product.Id && x.Active,
+                cancellationToken))
+        {
+            throw new InvalidOperationException(
+                "Stok produk bervarian harus disesuaikan melalui varian.");
+        }
+
         var stokLama = product.Stok;
         var jumlah = request.Jumlah;
         var stokAkhir = stokLama;

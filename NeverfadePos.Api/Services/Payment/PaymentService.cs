@@ -10,6 +10,7 @@ using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Payments;
+using NeverfadePos.Api.Services.Retail;
 
 namespace NeverfadePos.Api.Services.Payment;
 
@@ -18,6 +19,7 @@ internal sealed class PaymentService(
     CurrentUser currentUser,
     ITrustedTenantExecutionScope trustedTenantScope,
     IPaymentModeGate paymentModeGate,
+    IRetailSaleResolver retailSaleResolver,
     IXenditPaymentProvider xendit,
     IOptions<XenditOptions> xenditOptions)
     : IPaymentService
@@ -128,6 +130,12 @@ internal sealed class PaymentService(
                     ProductId = item.Product.Id,
                     Nama = item.Product.Nama,
                     HargaJual = item.HargaJual,
+                    ProductVariantId = item.Variant?.Id,
+                    VariantSku = item.Variant?.Sku ?? string.Empty,
+                    VariantLabel = item.Variant?.Label ?? string.Empty,
+                    BasePrice = item.BasePrice,
+                    PriceLevelId = item.PriceLevelId,
+                    PriceLevelName = item.PriceLevelName,
                     Qty = item.Qty,
                     Quantity = item.Quantity,
                     ProductType = item.Product.Type,
@@ -421,6 +429,26 @@ internal sealed class PaymentService(
                     exception.Message);
             }
 
+            ProductVariant? variant = null;
+            if (item.ProductVariantId.HasValue)
+            {
+                variant = await db.ProductVariants.SingleOrDefaultAsync(
+                    x => x.Id == item.ProductVariantId.Value && x.ProductId == product.Id,
+                    cancellationToken)
+                    ?? throw new PaymentApiException(
+                        StatusCodes.Status409Conflict,
+                        "PAYMENT_VARIANT_CONFLICT",
+                        "Varian transaksi tidak lagi tersedia.");
+
+                if (variant.Stok < stockUnits)
+                {
+                    throw new PaymentApiException(
+                        StatusCodes.Status409Conflict,
+                        "PAYMENT_VARIANT_STOCK_CONFLICT",
+                        $"Stok varian {product.Nama} {item.VariantLabel} tidak mencukupi untuk finalisasi payment.");
+                }
+            }
+
             if (product.Stok < stockUnits)
             {
                 throw new PaymentApiException(
@@ -429,12 +457,20 @@ internal sealed class PaymentService(
                     $"Stok produk {product.Nama} tidak mencukupi untuk finalisasi payment.");
             }
 
+            if (variant is not null)
+            {
+                variant.Stok -= stockUnits;
+            }
+
             product.Stok -= stockUnits;
             db.StockHistories.Add(new NeverfadePos.Api.Entities.StockHistory
             {
                 TenantId = transaction.TenantId,
                 ProdukId = product.Id,
                 ProdukNama = product.Nama,
+                ProductVariantId = item.ProductVariantId,
+                VariantSku = item.VariantSku,
+                VariantLabel = item.VariantLabel,
                 Tipe = "transaksi",
                 Jumlah = -stockUnits,
                 StokAkhir = product.Stok,
@@ -534,35 +570,27 @@ internal sealed class PaymentService(
         var items = new List<DraftItem>();
         foreach (var item in request.Items)
         {
-            var product = await db.Products.SingleOrDefaultAsync(
-                x => x.Id == item.Id,
-                cancellationToken)
-                ?? throw new KeyNotFoundException(
-                    $"Product {item.Id} tidak ditemukan.");
+            var resolved = await retailSaleResolver.ResolveAsync(
+                item.Id,
+                item.Qty,
+                item.Quantity,
+                item.ProductVariantId,
+                item.PriceLevelId,
+                enforceStock: true,
+                cancellationToken);
 
-            var quantity =
-                ProductQuantityRules.Resolve(
-                    product,
-                    item.Qty,
-                    item.Quantity,
-                    enforceStock: true);
-
-            var legacyQty =
-                product.Type == ProductTypes.Goods
-                    ? ProductQuantityRules.ToStockUnits(
-                        product,
-                        quantity)
-                    : 1;
-
-            var itemSubtotal = Money(product.HargaJual * quantity);
-            ValidateMoney("harga jual produk", item.HargaJual, product.HargaJual);
-            ValidateMoney("subtotal item", item.Subtotal, itemSubtotal);
+            ValidateMoney("harga jual produk", item.HargaJual, resolved.UnitPrice);
+            ValidateMoney("subtotal item", item.Subtotal, resolved.Subtotal);
             items.Add(new DraftItem(
-                product,
-                legacyQty,
-                quantity,
-                Money(product.HargaJual),
-                itemSubtotal));
+                resolved.Product,
+                resolved.Variant,
+                resolved.LegacyQty,
+                resolved.Quantity,
+                resolved.BasePrice,
+                resolved.UnitPrice,
+                resolved.PriceLevelId,
+                resolved.PriceLevelName,
+                resolved.Subtotal));
         }
 
         var subtotal = Money(items.Sum(x => x.Subtotal));
@@ -687,9 +715,13 @@ internal sealed class PaymentService(
 
     private sealed record DraftItem(
         NeverfadePos.Api.Entities.Product Product,
+        ProductVariant? Variant,
         int Qty,
         decimal Quantity,
+        decimal BasePrice,
         decimal HargaJual,
+        Guid? PriceLevelId,
+        string PriceLevelName,
         decimal Subtotal);
 
     private sealed record TransactionDraft(

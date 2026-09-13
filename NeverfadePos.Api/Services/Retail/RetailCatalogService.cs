@@ -4,6 +4,7 @@ using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Retail;
 using NeverfadePos.Api.Entities;
+using StockHistoryEntity = NeverfadePos.Api.Entities.StockHistory;
 using ProductEntity = NeverfadePos.Api.Entities.Product;
 
 namespace NeverfadePos.Api.Services.Retail;
@@ -110,6 +111,23 @@ public sealed class RetailCatalogService(
 
         product.Stok += entity.Stok;
         db.ProductVariants.Add(entity);
+        if (entity.Stok > 0)
+        {
+            db.StockHistories.Add(new StockHistoryEntity
+            {
+                TenantId = TenantId,
+                ProdukId = product.Id,
+                ProdukNama = product.Nama,
+                ProductVariantId = entity.Id,
+                VariantSku = entity.Sku,
+                VariantLabel = entity.Label,
+                Tipe = "masuk",
+                Jumlah = entity.Stok,
+                StokAkhir = product.Stok,
+                Keterangan = "Stok awal varian",
+                User = currentUser.Username ?? string.Empty
+            });
+        }
         await db.SaveChangesAsync(cancellationToken);
         return MapVariant(entity);
     }
@@ -136,13 +154,13 @@ public sealed class RetailCatalogService(
         var normalized = NormalizeVariant(request);
         await EnsureVariantUniqueAsync(entity.Id, normalized.Sku, normalized.Barcode, cancellationToken);
 
-        var stockDelta = request.Stok - entity.Stok;
-        if (product.Stok + stockDelta < 0)
+        if (request.Stok != entity.Stok)
         {
-            throw Conflict("VARIANT_STOCK_INVALID", "Stok agregat produk tidak boleh negatif.");
+            throw Conflict(
+                "VARIANT_STOCK_USE_ADJUSTMENT",
+                "Perubahan stok varian harus melalui aksi penyesuaian stok agar tercatat di riwayat.");
         }
 
-        product.Stok += stockDelta;
         entity.Sku = normalized.Sku;
         entity.Barcode = normalized.Barcode;
         entity.Label = normalized.Label;
@@ -157,6 +175,66 @@ public sealed class RetailCatalogService(
         entity.Stok = request.Stok;
         entity.Active = request.Active;
 
+        await db.SaveChangesAsync(cancellationToken);
+        return MapVariant(entity);
+    }
+
+    public async Task<ProductVariantDto> AdjustVariantStockAsync(
+        Guid id,
+        AdjustVariantStockDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await db.ProductVariants
+            .Include(x => x.Product)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
+            ?? throw NotFound("VARIANT_NOT_FOUND", "Varian produk tidak ditemukan.");
+        var product = entity.Product
+            ?? throw new InvalidOperationException("Produk varian tidak tersedia.");
+
+        var oldStock = entity.Stok;
+        var newStock = oldStock;
+        var delta = request.Jumlah;
+        var stockType = (request.Tipe ?? string.Empty).Trim().ToLowerInvariant();
+        switch (stockType)
+        {
+            case "masuk":
+                newStock = checked(oldStock + request.Jumlah);
+                break;
+            case "keluar":
+                newStock = oldStock - request.Jumlah;
+                if (newStock < 0)
+                    throw Conflict("VARIANT_STOCK_INSUFFICIENT", "Stok varian tidak boleh negatif.");
+                delta = -request.Jumlah;
+                break;
+            case "penyesuaian":
+                if (!request.StokFinal.HasValue)
+                    throw Invalid("VARIANT_STOCK_FINAL_REQUIRED", "stokFinal wajib diisi untuk penyesuaian.");
+                newStock = request.StokFinal.Value;
+                delta = newStock - oldStock;
+                break;
+            default:
+                throw Invalid("VARIANT_STOCK_TYPE_INVALID", "Tipe stok harus masuk, keluar, atau penyesuaian.");
+        }
+
+        if (product.Stok + delta < 0)
+            throw Conflict("VARIANT_PARENT_STOCK_INVALID", "Stok agregat produk tidak boleh negatif.");
+
+        entity.Stok = newStock;
+        product.Stok += delta;
+        db.StockHistories.Add(new StockHistoryEntity
+        {
+            TenantId = TenantId,
+            ProdukId = product.Id,
+            ProdukNama = product.Nama,
+            ProductVariantId = entity.Id,
+            VariantSku = entity.Sku,
+            VariantLabel = entity.Label,
+            Tipe = stockType,
+            Jumlah = delta,
+            StokAkhir = product.Stok,
+            Keterangan = request.Keterangan?.Trim() ?? string.Empty,
+            User = currentUser.Username ?? string.Empty
+        });
         await db.SaveChangesAsync(cancellationToken);
         return MapVariant(entity);
     }
@@ -489,6 +567,7 @@ public sealed class RetailCatalogService(
     }
 
     private static decimal Money(decimal value) => decimal.Round(value, 2, MidpointRounding.AwayFromZero);
+    private static TenantApiException Invalid(string code, string message) => new(StatusCodes.Status400BadRequest, code, message);
     private static TenantApiException Conflict(string code, string message) => new(StatusCodes.Status409Conflict, code, message);
     private static TenantApiException NotFound(string code, string message) => new(StatusCodes.Status404NotFound, code, message);
 

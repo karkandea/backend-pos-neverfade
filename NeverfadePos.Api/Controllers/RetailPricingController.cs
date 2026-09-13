@@ -17,14 +17,17 @@ public sealed class RetailPricingController(IRetailCatalogService retailService)
     public async Task<ActionResult<List<PriceLevelDto>>> GetLevels(CancellationToken cancellationToken) =>
         Ok(await retailService.GetPriceLevelsAsync(cancellationToken));
 
+    [Authorize(Roles = "owner,admin")]
     [HttpPost("price-levels")]
     public async Task<ActionResult<PriceLevelDto>> CreateLevel(CreatePriceLevelDto request, CancellationToken cancellationToken) =>
         Ok(await retailService.CreatePriceLevelAsync(request, cancellationToken));
 
+    [Authorize(Roles = "owner,admin")]
     [HttpPut("price-levels/{id:guid}")]
     public async Task<ActionResult<PriceLevelDto>> UpdateLevel(Guid id, UpdatePriceLevelDto request, CancellationToken cancellationToken) =>
         Ok(await retailService.UpdatePriceLevelAsync(id, request, cancellationToken));
 
+    [Authorize(Roles = "owner,admin")]
     [HttpDelete("price-levels/{id:guid}")]
     public async Task<IActionResult> DeleteLevel(Guid id, CancellationToken cancellationToken)
     {
@@ -36,14 +39,17 @@ public sealed class RetailPricingController(IRetailCatalogService retailService)
     public async Task<ActionResult<List<ProductPriceDto>>> GetPrices([FromQuery] Guid productId, CancellationToken cancellationToken) =>
         Ok(await retailService.GetPricesAsync(productId, cancellationToken));
 
+    [Authorize(Roles = "owner,admin")]
     [HttpPost("prices")]
     public async Task<ActionResult<ProductPriceDto>> CreatePrice(CreateProductPriceDto request, CancellationToken cancellationToken) =>
         Ok(await retailService.CreatePriceAsync(request, cancellationToken));
 
+    [Authorize(Roles = "owner,admin")]
     [HttpPut("prices/{id:guid}")]
     public async Task<ActionResult<ProductPriceDto>> UpdatePrice(Guid id, UpdateProductPriceDto request, CancellationToken cancellationToken) =>
         Ok(await retailService.UpdatePriceAsync(id, request, cancellationToken));
 
+    [Authorize(Roles = "owner,admin")]
     [HttpDelete("prices/{id:guid}")]
     public async Task<IActionResult> DeletePrice(Guid id, CancellationToken cancellationToken)
     {

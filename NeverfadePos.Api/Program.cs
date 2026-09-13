@@ -20,6 +20,7 @@ using NeverfadePos.Api.Services.Payment;
 using NeverfadePos.Api.Services.Finance;
 using NeverfadePos.Api.Services.Restaurant;
 using NeverfadePos.Api.Services.Laundry;
+using NeverfadePos.Api.Services.Retail;
 using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Payments;
 using NeverfadePos.Api.Services.Settings;
@@ -144,6 +145,8 @@ builder.Services.AddScoped<ITenantFinanceService, TenantFinanceService>();
 builder.Services.AddScoped<IPlatformWithdrawalService, PlatformWithdrawalService>();
 builder.Services.AddScoped<IRestaurantService, RestaurantService>();
 builder.Services.AddScoped<ILaundryService, LaundryService>();
+builder.Services.AddScoped<IRetailCatalogService, RetailCatalogService>();
+builder.Services.AddScoped<IRetailSaleResolver, RetailSaleResolver>();
 builder.Services.AddScoped<NeverfadePos.Api.Services.Users.IUserService, NeverfadePos.Api.Services.Users.UserService>();
 
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));

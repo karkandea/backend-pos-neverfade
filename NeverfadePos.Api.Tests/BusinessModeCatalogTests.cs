@@ -20,6 +20,19 @@ public sealed class BusinessModeCatalogTests
                 ]
             },
             {
+                BusinessTypes.FashionRetail,
+                [
+                    TenantCapabilities.CorePos,
+                    TenantCapabilities.Inventory,
+                    TenantCapabilities.Customers,
+                    TenantCapabilities.Reports,
+                    TenantCapabilities.Attendance,
+                    TenantCapabilities.FinanceWithdrawal,
+                    TenantCapabilities.ProductVariants,
+                    TenantCapabilities.MultiPricing
+                ]
+            },
+            {
                 BusinessTypes.FoodBeverage,
                 [
                     TenantCapabilities.CorePos,
@@ -106,6 +119,7 @@ public sealed class BusinessModeCatalogTests
 
     [Theory]
     [InlineData(BusinessTypes.GeneralRetail)]
+    [InlineData(BusinessTypes.FashionRetail)]
     [InlineData(BusinessTypes.FoodBeverage)]
     [InlineData(BusinessTypes.Laundry)]
     [InlineData(BusinessTypes.SalonBarbershop)]
