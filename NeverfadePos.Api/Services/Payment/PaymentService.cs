@@ -13,7 +13,7 @@ using NeverfadePos.Api.Payments;
 
 namespace NeverfadePos.Api.Services.Payment;
 
-internal sealed class PaymentService(
+internal sealed partial class PaymentService(
     AppDbContext db,
     CurrentUser currentUser,
     ITrustedTenantExecutionScope trustedTenantScope,
@@ -235,6 +235,7 @@ internal sealed class PaymentService(
         CancellationToken cancellationToken = default)
     {
         var payment = await db.Payments
+            .Where(x => x.Method == PaymentConstants.MethodQris)
             .Where(x =>
                 x.Status == PaymentConstants.StatusCreating ||
                 x.Status == PaymentConstants.StatusPending)
