@@ -19,6 +19,12 @@ public class StockHistoryConfiguration : IEntityTypeConfiguration<StockHistory>
             .HasMaxLength(200)
             .IsRequired();
 
+        builder.Property(x => x.VariantSku)
+            .HasMaxLength(100);
+
+        builder.Property(x => x.VariantLabel)
+            .HasMaxLength(200);
+
         builder.Property(x => x.Tipe)
             .HasMaxLength(50)
             .IsRequired();

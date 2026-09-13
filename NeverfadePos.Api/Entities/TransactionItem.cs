@@ -12,6 +12,18 @@ public class TransactionItem : BaseEntity
 
     public decimal HargaJual { get; set; }
 
+    public Guid? ProductVariantId { get; set; }
+
+    public string VariantSku { get; set; } = string.Empty;
+
+    public string VariantLabel { get; set; } = string.Empty;
+
+    public decimal BasePrice { get; set; }
+
+    public Guid? PriceLevelId { get; set; }
+
+    public string PriceLevelName { get; set; } = string.Empty;
+
     public int Qty { get; set; }
 
     public decimal Quantity { get; set; }
