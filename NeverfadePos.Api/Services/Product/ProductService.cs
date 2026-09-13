@@ -116,6 +116,19 @@ public sealed class ProductService(
             request.QuantityPrecision,
             request.Stok);
 
+        var hasVariants = await db.ProductVariants
+            .AnyAsync(x => x.ProductId == entity.Id, cancellationToken);
+        if (hasVariants &&
+            (request.Stok != entity.Stok ||
+             profile.Type != entity.Type ||
+             profile.TracksStock != entity.TracksStock))
+        {
+            throw new TenantApiException(
+                StatusCodes.Status409Conflict,
+                "VARIANT_PRODUCT_STOCK_MANAGED_SEPARATELY",
+                "Stok dan tipe produk bervarian harus dikelola melalui varian.");
+        }
+
         if (entity.Type != profile.Type &&
             entity.Stok != 0)
         {

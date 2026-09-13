@@ -13,6 +13,10 @@ public sealed class CreateTransactionItemDto
     [Range(0, double.MaxValue)]
     public decimal HargaJual { get; set; }
 
+    public Guid? ProductVariantId { get; set; }
+
+    public Guid? PriceLevelId { get; set; }
+
     [Range(1, int.MaxValue)]
     public int Qty { get; set; }
 
