@@ -10,7 +10,9 @@ public sealed class PaymentRoute
 
     public string Provider { get; set; } = "xendit";
 
-    public string ProviderPaymentRequestId { get; set; } = string.Empty;
+    public string? ProviderPaymentRequestId { get; set; }
+
+    public string? ProviderSessionId { get; set; }
 
     public string? ProviderReferenceId { get; set; }
 

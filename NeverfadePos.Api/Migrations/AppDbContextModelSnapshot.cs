@@ -168,6 +168,10 @@ namespace NeverfadePos.Api.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<string>("CheckoutUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -209,6 +213,10 @@ namespace NeverfadePos.Api.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
+                    b.Property<string>("ProviderSessionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("QrString")
                         .HasColumnType("text");
 
@@ -235,6 +243,9 @@ namespace NeverfadePos.Api.Migrations
                         .IsUnique();
 
                     b.HasIndex("ProviderReferenceId")
+                        .IsUnique();
+
+                    b.HasIndex("ProviderSessionId")
                         .IsUnique();
 
                     b.HasIndex("TenantId");
@@ -329,7 +340,14 @@ namespace NeverfadePos.Api.Migrations
                         .HasColumnType("character varying(30)");
 
                     b.Property<string>("ProviderPaymentRequestId")
-                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ProviderReferenceId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("ProviderSessionId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
@@ -344,6 +362,12 @@ namespace NeverfadePos.Api.Migrations
                     b.HasIndex("TenantId");
 
                     b.HasIndex("Provider", "ProviderPaymentRequestId")
+                        .IsUnique();
+
+                    b.HasIndex("Provider", "ProviderReferenceId")
+                        .IsUnique();
+
+                    b.HasIndex("Provider", "ProviderSessionId")
                         .IsUnique();
 
                     b.ToTable("payment_routes", (string)null);
