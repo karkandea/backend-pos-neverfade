@@ -325,6 +325,9 @@ namespace NeverfadePos.Api.Migrations
                 name: "VariantSku",
                 table: "stock_histories");
 
+            migrationBuilder.Sql(
+                "UPDATE tenants SET \"BusinessType\" = 'general_retail' WHERE \"BusinessType\" = 'fashion_retail';");
+
             migrationBuilder.AddCheckConstraint(
                 name: "CK_tenants_BusinessType",
                 table: "tenants",
