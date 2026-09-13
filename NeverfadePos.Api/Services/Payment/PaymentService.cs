@@ -301,11 +301,6 @@ internal sealed partial class PaymentService(
                     Nama = item.Product.Nama,
                     HargaJual = item.HargaJual,
                     Qty = item.Qty,
-                    Quantity = item.Quantity,
-                    ProductType = item.Product.Type,
-                    TracksStock = item.Product.TracksStock,
-                    QuantityPrecision = item.Product.QuantityPrecision,
-                    Unit = item.Product.Satuan,
                     Subtotal = item.Subtotal
                 }));
             db.Payments.Add(payment);
