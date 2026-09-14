@@ -22,6 +22,8 @@ internal sealed partial class PaymentService(
     IOptions<XenditOptions> xenditOptions)
     : IPaymentService
 {
+    private static readonly TimeSpan StaleQrisRecoveryAge = TimeSpan.FromDays(7);
+
     public PaymentCapabilitiesDto GetCapabilities()
     {
         var tenantId = currentUser.TenantId ??
@@ -596,9 +598,24 @@ internal sealed partial class PaymentService(
             return;
         }
 
-        var request = await xendit.GetPaymentRequestAsync(
-            payment.ProviderPaymentRequestId,
-            cancellationToken);
+        XenditPaymentRequestStatusResult request;
+        try
+        {
+            request = await xendit.GetPaymentRequestAsync(
+                payment.ProviderPaymentRequestId,
+                cancellationToken);
+        }
+        catch (XenditProviderException error)
+            when (payment.CreatedAt <= DateTime.UtcNow.Subtract(StaleQrisRecoveryAge) &&
+                  error.ProviderStatusCode is 400 or 404 or 410)
+        {
+            payment.Status = PaymentConstants.StatusFailed;
+            payment.FailureCode = "PAYMENT_REQUEST_STALE_UNRECONCILABLE";
+            payment.Transaction!.Status = TransactionStatuses.Failed;
+            payment.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+            return;
+        }
 
         if (!string.Equals(request.PaymentRequestId, payment.ProviderPaymentRequestId, StringComparison.Ordinal) ||
             !string.Equals(request.ReferenceId, payment.ProviderReferenceId, StringComparison.Ordinal) ||
