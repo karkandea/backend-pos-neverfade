@@ -6,6 +6,8 @@ public sealed class TransactionItemDto
 {
     public Guid Id { get; set; }
 
+    public Guid TransactionItemId { get; set; }
+
     public string Nama { get; set; } = string.Empty;
 
     public decimal HargaJual { get; set; }
