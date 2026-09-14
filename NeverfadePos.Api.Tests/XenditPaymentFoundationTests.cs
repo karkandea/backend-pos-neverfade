@@ -245,6 +245,42 @@ public sealed class XenditPaymentFoundationTests
         Assert.Equal(HttpStatusCode.OK, next.StatusCode);
     }
 
+
+    [Fact]
+    public async Task StaleMissingProviderRequest_ReleasesCashierAfterGracePeriod()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants
+                .Where(x => x.Slug == "warung-lumpia-beef")
+                .Select(x => x.Id)
+                .SingleAsync();
+            using var tenantScope = scope.ServiceProvider
+                .GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "age-stale-provider-request");
+            var entity = await db.Payments.SingleAsync(x => x.Id == payment.Id);
+            entity.CreatedAt = DateTime.UtcNow.AddDays(-8);
+            await db.SaveChangesAsync();
+        }
+
+        factory.Provider.StatusLookupException =
+            new XenditProviderException(404, "provider request no longer available");
+
+        var current = await client.GetAsync("/api/payments/current");
+        Assert.Equal(HttpStatusCode.NoContent, current.StatusCode);
+
+        var status = await client.GetFromJsonAsync<PaymentStatusDto>(
+            $"/api/payments/{payment.Id}");
+        Assert.NotNull(status);
+        Assert.Equal(PaymentConstants.StatusFailed, status.Status);
+        Assert.Equal("PAYMENT_REQUEST_STALE_UNRECONCILABLE", status.FailureCode);
+    }
+
     [Fact]
     public async Task PaymentStatus_ReconcilesSuccessfulProviderExactlyOnceWithoutWebhook()
     {
@@ -1015,6 +1051,7 @@ public sealed class XenditPaymentFoundationTests
         public List<string> Cancelled { get; } = new();
         public Dictionary<string, XenditPaymentRequestStatusResult> Statuses { get; } = new();
         public Dictionary<string, XenditPaymentResult> Payments { get; } = new();
+        public Exception? StatusLookupException { get; set; }
 
         public Task<XenditPaymentRequestResult> CreateQrisAsync(
             string referenceId,
@@ -1046,8 +1083,16 @@ public sealed class XenditPaymentFoundationTests
 
         public Task<XenditPaymentRequestStatusResult> GetPaymentRequestAsync(
             string paymentRequestId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Statuses[paymentRequestId]);
+            CancellationToken cancellationToken = default)
+        {
+            if (StatusLookupException is not null)
+            {
+                return Task.FromException<XenditPaymentRequestStatusResult>(
+                    StatusLookupException);
+            }
+
+            return Task.FromResult(Statuses[paymentRequestId]);
+        }
 
         public Task<XenditPaymentResult> GetPaymentAsync(
             string paymentId,
