@@ -21,7 +21,7 @@ using Xunit;
 
 namespace NeverfadePos.Api.Tests;
 
-public sealed class AdvancedRetailApiTests
+public sealed partial class AdvancedRetailApiTests
 {    private const string TenantKey =
         "advanced-retail-test-key-123456789012345678901234";
     private const string PlatformKey =

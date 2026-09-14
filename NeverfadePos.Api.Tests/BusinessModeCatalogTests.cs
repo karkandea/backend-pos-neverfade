@@ -29,7 +29,8 @@ public sealed class BusinessModeCatalogTests
                     TenantCapabilities.Attendance,
                     TenantCapabilities.FinanceWithdrawal,
                     TenantCapabilities.ProductVariants,
-                    TenantCapabilities.MultiPricing
+                    TenantCapabilities.MultiPricing,
+                    TenantCapabilities.ReturnsExchanges
                 ]
             },
             {

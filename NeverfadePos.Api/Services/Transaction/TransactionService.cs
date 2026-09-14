@@ -530,6 +530,7 @@ public sealed class TransactionService(
                     new TransactionItemDto
                     {
                         Id = i.ProductId,
+                        TransactionItemId = i.Id,
                         Nama = i.Nama,
                         HargaJual = i.HargaJual,
                         ProductVariantId = i.ProductVariantId,
@@ -583,6 +584,7 @@ public sealed class TransactionService(
                     new TransactionItemDto
                     {
                         Id = i.ProductId,
+                        TransactionItemId = i.Id,
                         Nama = i.Nama,
                         HargaJual = i.HargaJual,
                         ProductVariantId = i.ProductVariantId,
