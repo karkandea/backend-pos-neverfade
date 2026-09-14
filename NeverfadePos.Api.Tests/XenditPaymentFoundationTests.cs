@@ -282,6 +282,38 @@ public sealed class XenditPaymentFoundationTests
     }
 
     [Fact]
+    public async Task CurrentPayment_ReleasesAncientNonTerminalQris()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants
+                .Where(x => x.Slug == "warung-lumpia-beef")
+                .Select(x => x.Id)
+                .SingleAsync();
+            using var tenantScope = scope.ServiceProvider
+                .GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "age-qris-test");
+            (await db.Payments.SingleAsync(x => x.Id == payment.Id)).CreatedAt =
+                DateTime.UtcNow.AddDays(-8);
+            await db.SaveChangesAsync();
+        }
+
+        var current = await client.GetAsync("/api/payments/current");
+        Assert.Equal(HttpStatusCode.NoContent, current.StatusCode);
+
+        var status = await client.GetFromJsonAsync<PaymentStatusDto>(
+            $"/api/payments/{payment.Id}");
+        Assert.NotNull(status);
+        Assert.Equal(PaymentConstants.StatusFailed, status.Status);
+        Assert.Equal("PAYMENT_REQUEST_STALE", status.FailureCode);
+    }
+
+    [Fact]
     public async Task PaymentStatus_ReconcilesSuccessfulProviderExactlyOnceWithoutWebhook()
     {
         await using var factory = new PaymentApiFactory();

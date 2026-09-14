@@ -698,6 +698,12 @@ internal sealed partial class PaymentService(
                 : request.FailureCode;
             payment.Transaction!.Status = TransactionStatuses.Failed;
         }
+        else if (payment.CreatedAt <= DateTime.UtcNow.Subtract(StaleQrisRecoveryAge))
+        {
+            payment.Status = PaymentConstants.StatusFailed;
+            payment.FailureCode = "PAYMENT_REQUEST_STALE";
+            payment.Transaction!.Status = TransactionStatuses.Failed;
+        }
 
         payment.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
