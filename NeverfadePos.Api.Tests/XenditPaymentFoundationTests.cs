@@ -216,6 +216,83 @@ public sealed class XenditPaymentFoundationTests
     }
 
     [Fact]
+    public async Task CurrentPayment_ReconcilesExpiredProviderWithoutWebhook()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(client);
+        var currentStatus = factory.Provider.Statuses[payment.ProviderPaymentRequestId];
+        factory.Provider.Statuses[payment.ProviderPaymentRequestId] = currentStatus with
+        {
+            Status = "EXPIRED",
+            FailureCode = "PAYMENT_REQUEST_EXPIRED",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(-1)
+        };
+
+        var current = await client.GetAsync("/api/payments/current");
+        Assert.Equal(HttpStatusCode.NoContent, current.StatusCode);
+
+        var status = await client.GetFromJsonAsync<PaymentStatusDto>(
+            $"/api/payments/{payment.Id}");
+        Assert.NotNull(status);
+        Assert.Equal(PaymentConstants.StatusExpired, status.Status);
+        Assert.Equal("PAYMENT_REQUEST_EXPIRED", status.FailureCode);
+
+        var product = await GetProductAsync(client);
+        var next = await client.PostAsJsonAsync(
+            "/api/payments/qris",
+            CreateQrisRequest(product));
+        Assert.Equal(HttpStatusCode.OK, next.StatusCode);
+    }
+
+    [Fact]
+    public async Task PaymentStatus_ReconcilesSuccessfulProviderExactlyOnceWithoutWebhook()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var productBefore = await GetProductAsync(client);
+        var payment = await CreatePaymentAsync(client);
+        var providerPaymentId = $"py-{Guid.NewGuid():D}";
+        var currentStatus = factory.Provider.Statuses[payment.ProviderPaymentRequestId];
+        factory.Provider.Statuses[payment.ProviderPaymentRequestId] = currentStatus with
+        {
+            Status = "SUCCEEDED",
+            LatestPaymentId = providerPaymentId
+        };
+        factory.Provider.Payments[providerPaymentId] = new XenditPaymentResult(
+            providerPaymentId,
+            payment.ProviderReferenceId,
+            payment.ProviderPaymentRequestId,
+            payment.Amount,
+            "SUCCEEDED",
+            "QRIS",
+            "IDR");
+
+        var first = await client.GetFromJsonAsync<PaymentStatusDto>(
+            $"/api/payments/{payment.Id}");
+        var second = await client.GetFromJsonAsync<PaymentStatusDto>(
+            $"/api/payments/{payment.Id}");
+        Assert.Equal(PaymentConstants.StatusPaid, first!.Status);
+        Assert.Equal(PaymentConstants.StatusPaid, second!.Status);
+
+        var productAfter = await GetProductAsync(client);
+        Assert.Equal(productBefore.Stok - 1, productAfter.Stok);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await db.Tenants
+            .Where(x => x.Slug == "warung-lumpia-beef")
+            .Select(x => x.Id)
+            .SingleAsync();
+        using var tenantScope = scope.ServiceProvider
+            .GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(tenantId, "verify-provider-reconcile");
+        Assert.Single(await db.PaymentLedgerEntries
+            .Where(x => x.PaymentId == payment.Id)
+            .ToListAsync());
+    }
+
+    [Fact]
     public async Task DisplayExpiry_DoesNotPrematurelyCloseProviderPayment()
     {
         await using var factory = new PaymentApiFactory();
@@ -936,6 +1013,8 @@ public sealed class XenditPaymentFoundationTests
 
         public decimal? LastAmount => Requests.LastOrDefault().Amount;
         public List<string> Cancelled { get; } = new();
+        public Dictionary<string, XenditPaymentRequestStatusResult> Statuses { get; } = new();
+        public Dictionary<string, XenditPaymentResult> Payments { get; } = new();
 
         public Task<XenditPaymentRequestResult> CreateQrisAsync(
             string referenceId,
@@ -945,14 +1024,35 @@ public sealed class XenditPaymentFoundationTests
             CancellationToken cancellationToken = default)
         {
             Requests.Add((referenceId, amount));
+            var paymentRequestId = $"pr-{referenceId}";
+            Statuses[paymentRequestId] = new XenditPaymentRequestStatusResult(
+                paymentRequestId,
+                referenceId,
+                amount,
+                "IDR",
+                "QRIS",
+                "REQUIRES_ACTION",
+                null,
+                null,
+                expiresAt);
             return Task.FromResult(new XenditPaymentRequestResult(
-                $"pr-{referenceId}",
+                paymentRequestId,
                 referenceId,
                 amount,
                 "REQUIRES_ACTION",
                 "000201010212TEST-QRIS",
                 expiresAt));
         }
+
+        public Task<XenditPaymentRequestStatusResult> GetPaymentRequestAsync(
+            string paymentRequestId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Statuses[paymentRequestId]);
+
+        public Task<XenditPaymentResult> GetPaymentAsync(
+            string paymentId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Payments[paymentId]);
 
         public Task CancelPaymentRequestAsync(
             string paymentRequestId,

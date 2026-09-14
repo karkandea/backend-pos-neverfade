@@ -212,7 +212,7 @@ public sealed class XenditPaymentProvider(
             body.Currency);
     }
 
-    public async Task<string> GetPaymentRequestStatusAsync(
+    public async Task<XenditPaymentRequestStatusResult> GetPaymentRequestAsync(
         string paymentRequestId,
         CancellationToken cancellationToken = default)
     {
@@ -238,8 +238,22 @@ public sealed class XenditPaymentProvider(
                 "Xendit mengembalikan status payment request kosong.");
         }
 
-        return body.Status;
+        return new XenditPaymentRequestStatusResult(
+            body.PaymentRequestId,
+            body.ReferenceId,
+            body.RequestAmount,
+            body.Currency,
+            body.ChannelCode,
+            body.Status,
+            body.FailureCode,
+            body.LatestPaymentId,
+            body.ChannelProperties?.ExpiresAt);
     }
+
+    public async Task<string> GetPaymentRequestStatusAsync(
+        string paymentRequestId,
+        CancellationToken cancellationToken = default) =>
+        (await GetPaymentRequestAsync(paymentRequestId, cancellationToken)).Status;
 
     public async Task CancelPaymentRequestAsync(
         string paymentRequestId,
@@ -356,6 +370,18 @@ public sealed class XenditPaymentProvider(
 
         [JsonPropertyName("request_amount")]
         public decimal RequestAmount { get; set; }
+
+        [JsonPropertyName("currency")]
+        public string Currency { get; set; } = string.Empty;
+
+        [JsonPropertyName("channel_code")]
+        public string ChannelCode { get; set; } = string.Empty;
+
+        [JsonPropertyName("latest_payment_id")]
+        public string? LatestPaymentId { get; set; }
+
+        [JsonPropertyName("failure_code")]
+        public string? FailureCode { get; set; }
 
         [JsonPropertyName("status")]
         public string Status { get; set; } = string.Empty;
