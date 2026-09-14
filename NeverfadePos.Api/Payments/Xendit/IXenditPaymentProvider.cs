@@ -9,10 +9,17 @@ public interface IXenditPaymentProvider
         DateTime expiresAt,
         CancellationToken cancellationToken = default);
 
-    Task<string> GetPaymentRequestStatusAsync(
+    Task<XenditPaymentRequestStatusResult> GetPaymentRequestAsync(
         string paymentRequestId,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult("UNKNOWN");
+        Task.FromResult(new XenditPaymentRequestStatusResult(
+            paymentRequestId, string.Empty, 0m, string.Empty, string.Empty,
+            "UNKNOWN", null, null, null));
+
+    async Task<string> GetPaymentRequestStatusAsync(
+        string paymentRequestId,
+        CancellationToken cancellationToken = default) =>
+        (await GetPaymentRequestAsync(paymentRequestId, cancellationToken)).Status;
 
     Task CancelPaymentRequestAsync(
         string paymentRequestId,
@@ -48,6 +55,17 @@ public sealed record XenditPaymentRequestResult(
     decimal RequestAmount,
     string Status,
     string? QrString,
+    DateTime? ExpiresAt);
+
+public sealed record XenditPaymentRequestStatusResult(
+    string PaymentRequestId,
+    string ReferenceId,
+    decimal RequestAmount,
+    string Currency,
+    string ChannelCode,
+    string Status,
+    string? FailureCode,
+    string? LatestPaymentId,
     DateTime? ExpiresAt);
 
 public sealed record XenditHostedSessionResult(

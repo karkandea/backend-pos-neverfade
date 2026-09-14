@@ -43,23 +43,13 @@ internal sealed partial class PaymentService(
         paymentModeGate.EnsureQrisAllowed(
             currentUser.TenantId.Value);
 
-        var existingPayment = await db.Payments
-            .Where(x =>
-                x.Status == PaymentConstants.StatusCreating ||
-                x.Status == PaymentConstants.StatusPending)
-            .OrderByDescending(x => x.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
+        var existingPayment = await GetCurrentPendingPaymentAsync(cancellationToken);
         if (existingPayment is not null)
         {
-            if (existingPayment.Status == PaymentConstants.StatusCreating ||
-                existingPayment.Status == PaymentConstants.StatusPending)
-            {
-                throw new PaymentApiException(
-                    StatusCodes.Status409Conflict,
-                    "PAYMENT_ALREADY_PENDING",
-                    "Masih ada pembayaran QRIS yang belum selesai.");
-            }
+            throw new PaymentApiException(
+                StatusCodes.Status409Conflict,
+                "PAYMENT_ALREADY_PENDING",
+                "Masih ada pembayaran QRIS yang belum selesai.");
         }
 
         if (!string.Equals(
@@ -222,13 +212,7 @@ internal sealed partial class PaymentService(
         paymentModeGate.EnsureHostedCheckoutAllowed(
             currentUser.TenantId.Value);
 
-        var existingPayment = await db.Payments
-            .Where(x =>
-                x.Status == PaymentConstants.StatusCreating ||
-                x.Status == PaymentConstants.StatusPending)
-            .OrderByDescending(x => x.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
+        var existingPayment = await GetCurrentPendingPaymentAsync(cancellationToken);
         if (existingPayment is not null)
         {
             throw new PaymentApiException(
@@ -400,32 +384,15 @@ internal sealed partial class PaymentService(
             throw new KeyNotFoundException("Payment tidak ditemukan.");
         }
 
-        await ReconcileHostedSessionAsync(payment, cancellationToken);
+        await ReconcilePaymentAsync(payment, cancellationToken);
         return MapStatus(payment);
     }
 
     public async Task<PaymentStatusDto?> GetCurrentAsync(
         CancellationToken cancellationToken = default)
     {
-        var payment = await db.Payments
-            .Include(x => x.Transaction)
-                .ThenInclude(x => x!.Items)
-            .Where(x =>
-                x.Status == PaymentConstants.StatusCreating ||
-                x.Status == PaymentConstants.StatusPending)
-            .OrderByDescending(x => x.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (payment is null)
-        {
-            return null;
-        }
-
-        await ReconcileHostedSessionAsync(payment, cancellationToken);
-        return payment.Status == PaymentConstants.StatusCreating ||
-               payment.Status == PaymentConstants.StatusPending
-            ? MapStatus(payment)
-            : null;
+        var payment = await GetCurrentPendingPaymentAsync(cancellationToken);
+        return payment is null ? null : MapStatus(payment);
     }
 
     public async Task<PaymentStatusDto> CancelAsync(
@@ -438,7 +405,7 @@ internal sealed partial class PaymentService(
             .SingleOrDefaultAsync(x => x.Id == paymentId, cancellationToken)
             ?? throw new KeyNotFoundException("Payment tidak ditemukan.");
 
-        await ReconcileHostedSessionAsync(payment, cancellationToken);
+        await ReconcilePaymentAsync(payment, cancellationToken);
 
         if (payment.Status == PaymentConstants.StatusPaid)
         {
@@ -579,6 +546,144 @@ internal sealed partial class PaymentService(
         {
             await databaseTransaction.CommitAsync(cancellationToken);
         }
+    }
+
+
+    private async Task<NeverfadePos.Api.Entities.Payment?> GetCurrentPendingPaymentAsync(
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var payment = await db.Payments
+                .Include(x => x.Transaction)
+                    .ThenInclude(x => x!.Items)
+                .Where(x =>
+                    x.Status == PaymentConstants.StatusCreating ||
+                    x.Status == PaymentConstants.StatusPending)
+                .OrderByDescending(x => x.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (payment is null)
+            {
+                return null;
+            }
+
+            await ReconcilePaymentAsync(payment, cancellationToken);
+            if (payment.Status == PaymentConstants.StatusCreating ||
+                payment.Status == PaymentConstants.StatusPending)
+            {
+                return payment;
+            }
+        }
+    }
+
+    private Task ReconcilePaymentAsync(
+        NeverfadePos.Api.Entities.Payment payment,
+        CancellationToken cancellationToken) =>
+        payment.Method == PaymentConstants.MethodHostedCheckout
+            ? ReconcileHostedSessionAsync(payment, cancellationToken)
+            : ReconcileQrisPaymentAsync(payment, cancellationToken);
+
+    private async Task ReconcileQrisPaymentAsync(
+        NeverfadePos.Api.Entities.Payment payment,
+        CancellationToken cancellationToken)
+    {
+        if (payment.Method != PaymentConstants.MethodQris ||
+            payment.Status == PaymentConstants.StatusPaid ||
+            payment.Status == PaymentConstants.StatusFailed ||
+            string.IsNullOrWhiteSpace(payment.ProviderPaymentRequestId))
+        {
+            return;
+        }
+
+        var request = await xendit.GetPaymentRequestAsync(
+            payment.ProviderPaymentRequestId,
+            cancellationToken);
+
+        if (!string.Equals(request.PaymentRequestId, payment.ProviderPaymentRequestId, StringComparison.Ordinal) ||
+            !string.Equals(request.ReferenceId, payment.ProviderReferenceId, StringComparison.Ordinal) ||
+            Money(request.RequestAmount) != payment.Amount ||
+            !string.Equals(request.Currency, PaymentConstants.CurrencyIdr, StringComparison.Ordinal) ||
+            !string.Equals(request.ChannelCode, "QRIS", StringComparison.Ordinal))
+        {
+            throw new PaymentApiException(
+                StatusCodes.Status409Conflict,
+                "XENDIT_PAYMENT_REQUEST_MISMATCH",
+                "Status QRIS Xendit tidak sesuai dengan transaksi NeverFade.");
+        }
+
+        if (request.ExpiresAt.HasValue)
+        {
+            payment.ExpiresAt = request.ExpiresAt;
+        }
+
+        if (string.Equals(request.Status, "SUCCEEDED", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(request.LatestPaymentId))
+            {
+                throw new PaymentApiException(
+                    StatusCodes.Status502BadGateway,
+                    "XENDIT_PAYMENT_ID_MISSING",
+                    "Xendit menyatakan QRIS berhasil tanpa payment ID.");
+            }
+
+            var providerPayment = await xendit.GetPaymentAsync(
+                request.LatestPaymentId,
+                cancellationToken);
+            if (!string.Equals(providerPayment.Status, "SUCCEEDED", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(providerPayment.PaymentRequestId, payment.ProviderPaymentRequestId, StringComparison.Ordinal) ||
+                !string.Equals(providerPayment.ReferenceId, payment.ProviderReferenceId, StringComparison.Ordinal) ||
+                Money(providerPayment.RequestAmount) != payment.Amount ||
+                !string.Equals(providerPayment.Currency, PaymentConstants.CurrencyIdr, StringComparison.Ordinal) ||
+                !string.Equals(providerPayment.ChannelCode, "QRIS", StringComparison.Ordinal))
+            {
+                throw new PaymentApiException(
+                    StatusCodes.Status409Conflict,
+                    "XENDIT_PAYMENT_MISMATCH",
+                    "Payment QRIS Xendit tidak sesuai dengan transaksi NeverFade.");
+            }
+
+            await ApplySuccessfulPaymentAsync(
+                payment,
+                new XenditPaymentWebhookDto
+                {
+                    Event = "payment.capture",
+                    Data = new XenditPaymentWebhookDataDto
+                    {
+                        PaymentId = providerPayment.PaymentId,
+                        PaymentRequestId = providerPayment.PaymentRequestId,
+                        ReferenceId = providerPayment.ReferenceId,
+                        RequestAmount = providerPayment.RequestAmount,
+                        Status = "SUCCEEDED",
+                        ChannelCode = providerPayment.ChannelCode,
+                        Currency = providerPayment.Currency
+                    }
+                },
+                cancellationToken);
+        }
+        else if (string.Equals(request.Status, "EXPIRED", StringComparison.OrdinalIgnoreCase))
+        {
+            payment.Status = PaymentConstants.StatusFailed;
+            payment.FailureCode = "PAYMENT_REQUEST_EXPIRED";
+            payment.Transaction!.Status = TransactionStatuses.Failed;
+        }
+        else if (string.Equals(request.Status, "CANCELED", StringComparison.OrdinalIgnoreCase))
+        {
+            payment.Status = PaymentConstants.StatusFailed;
+            payment.FailureCode = "PAYMENT_REQUEST_CANCELED";
+            payment.Transaction!.Status = TransactionStatuses.Failed;
+        }
+        else if (string.Equals(request.Status, "FAILED", StringComparison.OrdinalIgnoreCase))
+        {
+            payment.Status = PaymentConstants.StatusFailed;
+            payment.FailureCode = string.IsNullOrWhiteSpace(request.FailureCode)
+                ? "PAYMENT_REQUEST_FAILED"
+                : request.FailureCode;
+            payment.Transaction!.Status = TransactionStatuses.Failed;
+        }
+
+        payment.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task ApplySuccessfulPaymentAsync(
