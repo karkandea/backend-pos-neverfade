@@ -36,6 +36,7 @@ public static class TenantCapabilities
     public const string Appointments = "appointments";
     public const string ProductVariants = "product_variants";
     public const string MultiPricing = "multi_pricing";
+    public const string ReturnsExchanges = "returns_exchanges";
 }
 
 public static class BusinessCapabilityPresets
@@ -58,7 +59,8 @@ public static class BusinessCapabilityPresets
             [
                 ..Common,
                 TenantCapabilities.ProductVariants,
-                TenantCapabilities.MultiPricing
+                TenantCapabilities.MultiPricing,
+                TenantCapabilities.ReturnsExchanges
             ],
             [BusinessTypes.FoodBeverage] =
             [
