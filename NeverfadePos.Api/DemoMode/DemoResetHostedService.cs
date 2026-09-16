@@ -5,25 +5,42 @@ using NeverfadePos.Api.Entities;
 
 namespace NeverfadePos.Api.DemoMode;
 
-internal sealed class DemoResetHostedService(
-    IServiceScopeFactory scopeFactory,
-    IConfiguration configuration,
-    ILogger<DemoResetHostedService> logger)
-    : BackgroundService
+internal static class DemoResetScheduler
 {
-    protected override async Task ExecuteAsync(
-        CancellationToken stoppingToken)
+    private static int _started;
+
+    public static void Start(
+        IServiceScopeFactory scopeFactory,
+        IConfiguration configuration,
+        IHostApplicationLifetime applicationLifetime,
+        ILoggerFactory loggerFactory)
     {
-        if (!configuration.GetValue<bool>("DemoMode:Enabled"))
+        if (!configuration.GetValue<bool>("DemoMode:Enabled") ||
+            Interlocked.Exchange(ref _started, 1) == 1)
         {
             return;
         }
 
         var intervalMinutes =
             configuration.GetValue<int?>("DemoMode:ResetIntervalMinutes") ?? 180;
-
         var interval = TimeSpan.FromMinutes(intervalMinutes);
+        var logger = loggerFactory.CreateLogger("DemoResetScheduler");
 
+        _ = Task.Run(
+            () => RunAsync(
+                scopeFactory,
+                interval,
+                logger,
+                applicationLifetime.ApplicationStopping),
+            applicationLifetime.ApplicationStopping);
+    }
+
+    private static async Task RunAsync(
+        IServiceScopeFactory scopeFactory,
+        TimeSpan interval,
+        ILogger logger,
+        CancellationToken stoppingToken)
+    {
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -38,7 +55,7 @@ internal sealed class DemoResetHostedService(
 
             try
             {
-                await ResetAsync(stoppingToken);
+                await ResetAsync(scopeFactory, stoppingToken);
                 logger.LogInformation(
                     "NeverFade public demo state reset completed.");
             }
@@ -56,7 +73,9 @@ internal sealed class DemoResetHostedService(
         }
     }
 
-    private async Task ResetAsync(CancellationToken cancellationToken)
+    internal static async Task ResetAsync(
+        IServiceScopeFactory scopeFactory,
+        CancellationToken cancellationToken = default)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
