@@ -59,13 +59,34 @@ internal static class DemoModeBootstrap
             ?? throw new InvalidOperationException(
                 "Demo user is missing after demo seed initialization.");
 
+        var changed = false;
+
         if (!BCrypt.Net.BCrypt.Verify(
                 demoPassword,
                 user.PasswordHash))
         {
             user.PasswordHash =
                 BCrypt.Net.BCrypt.HashPassword(demoPassword);
+            changed = true;
+        }
 
+        var seededHistory = await db.Transactions
+            .Where(x => x.NoTrx.StartsWith("DEMO-"))
+            .ToListAsync(cancellationToken);
+
+        foreach (var transaction in seededHistory)
+        {
+            if (transaction.CreatedAt == transaction.Tanggal)
+            {
+                continue;
+            }
+
+            transaction.CreatedAt = transaction.Tanggal;
+            changed = true;
+        }
+
+        if (changed)
+        {
             await db.SaveChangesAsync(cancellationToken);
         }
     }
