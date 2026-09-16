@@ -36,14 +36,6 @@ internal static class DemoModeBootstrap
                 "DemoMode:ResetIntervalMinutes must be between 30 and 1440 minutes.");
         }
 
-        var demoPassword = configuration["DemoMode:Password"];
-        if (string.IsNullOrWhiteSpace(demoPassword) ||
-            demoPassword.Length < 16)
-        {
-            throw new InvalidOperationException(
-                "DemoMode:Password must contain at least 16 characters.");
-        }
-
         await DemoSeedData.InitializeAsync(
             db,
             trustedTenantScope);
@@ -52,23 +44,18 @@ internal static class DemoModeBootstrap
             DemoModeDefaults.TenantId,
             "demo-credential-bootstrap");
 
-        var user = await db.Users
-            .FirstOrDefaultAsync(
+        var demoUserExists = await db.Users
+            .AnyAsync(
                 x => x.Username == DemoModeDefaults.Username,
-                cancellationToken)
-            ?? throw new InvalidOperationException(
+                cancellationToken);
+
+        if (!demoUserExists)
+        {
+            throw new InvalidOperationException(
                 "Demo user is missing after demo seed initialization.");
+        }
 
         var changed = false;
-
-        if (!BCrypt.Net.BCrypt.Verify(
-                demoPassword,
-                user.PasswordHash))
-        {
-            user.PasswordHash =
-                BCrypt.Net.BCrypt.HashPassword(demoPassword);
-            changed = true;
-        }
 
         var seededHistory = await db.Transactions
             .Where(x => x.NoTrx.StartsWith("DEMO-"))

@@ -20,22 +20,15 @@ namespace NeverfadePos.Api.Tests;
 
 public sealed class DemoModeTests
 {
-    private const string DemoPassword =
-        "neverfade-public-demo-password-2026";
-
     [Fact]
     public async Task PublicDemo_AllowsCashTransaction_ButBlocksMasterMutation()
     {
         await using var factory = new DemoModeFactory();
         using var client = factory.CreateClient();
 
-        var loginResponse = await client.PostAsJsonAsync(
-            "/api/auth/login",
-            new
-            {
-                username = "demo",
-                password = DemoPassword
-            });
+        var loginResponse = await client.PostAsync(
+            "/api/demo/session",
+            content: null);
 
         Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
 
@@ -141,7 +134,6 @@ public sealed class DemoModeTests
             builder.UseSetting("Payments:Mode", "Disabled");
             builder.UseSetting("PlatformBootstrap:Enabled", "false");
             builder.UseSetting("DemoMode:Enabled", "true");
-            builder.UseSetting("DemoMode:Password", DemoPassword);
             builder.UseSetting("DemoMode:ResetIntervalMinutes", "180");
 
             builder.ConfigureAppConfiguration((_, config) =>
@@ -160,7 +152,6 @@ public sealed class DemoModeTests
                     ["Payments:Mode"] = "Disabled",
                     ["PlatformBootstrap:Enabled"] = "false",
                     ["DemoMode:Enabled"] = "true",
-                    ["DemoMode:Password"] = DemoPassword,
                     ["DemoMode:ResetIntervalMinutes"] = "180"
                 }));
 
