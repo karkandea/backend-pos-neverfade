@@ -2,27 +2,45 @@ using NeverfadePos.Api.DemoMode;
 
 namespace NeverfadePos.Api.Middleware;
 
-public sealed class DemoSafetyMiddleware(
-    RequestDelegate next,
-    IConfiguration configuration)
+public sealed class DemoSafetyMiddleware
 {
+    private readonly RequestDelegate _next;
+    private readonly IConfiguration _configuration;
+
+    public DemoSafetyMiddleware(
+        RequestDelegate next,
+        IConfiguration configuration,
+        IServiceScopeFactory scopeFactory,
+        IHostApplicationLifetime applicationLifetime,
+        ILoggerFactory loggerFactory)
+    {
+        _next = next;
+        _configuration = configuration;
+
+        DemoResetScheduler.Start(
+            scopeFactory,
+            configuration,
+            applicationLifetime,
+            loggerFactory);
+    }
+
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!configuration.GetValue<bool>("DemoMode:Enabled") ||
+        if (!_configuration.GetValue<bool>("DemoMode:Enabled") ||
             context.User.Identity?.IsAuthenticated != true ||
             !Guid.TryParse(
                 context.User.FindFirst("tenant_id")?.Value,
                 out var tenantId) ||
             tenantId != DemoModeDefaults.TenantId)
         {
-            await next(context);
+            await _next(context);
             return;
         }
 
         if (IsReadRequest(context.Request) ||
             IsAllowedDemoMutation(context.Request))
         {
-            await next(context);
+            await _next(context);
             return;
         }
 
