@@ -8,7 +8,7 @@ namespace NeverfadePos.Api.Services.WhatsApp;
 public interface IWhatsAppSenderResolver
 {
     Task<WhatsAppSender?> FindDefaultAsync(
-        Guid outletId,
+        Guid? outletId,
         CancellationToken cancellationToken = default);
 
     Task<WhatsAppSender> GetOrCreateDefaultAsync(
@@ -27,14 +27,22 @@ public sealed class WhatsAppSenderResolver(
     : IWhatsAppSenderResolver
 {
     public Task<WhatsAppSender?> FindDefaultAsync(
-        Guid outletId,
+        Guid? outletId,
         CancellationToken cancellationToken = default)
     {
-        return db.WhatsAppSenders
+        var query = db.WhatsAppSenders
             .Where(x =>
-                x.OutletId == outletId &&
                 x.Provider == "waha" &&
-                x.Active)
+                x.Active);
+
+        query = outletId.HasValue && outletId.Value != Guid.Empty
+            ? query.Where(x => x.OutletId == outletId.Value)
+            : query.Where(x =>
+                x.Outlet != null &&
+                x.Outlet.Active &&
+                x.Outlet.IsDefault);
+
+        return query
             .OrderByDescending(x => x.IsDefault)
             .ThenBy(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
