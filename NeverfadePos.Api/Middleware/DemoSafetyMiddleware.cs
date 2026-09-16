@@ -9,19 +9,10 @@ public sealed class DemoSafetyMiddleware
 
     public DemoSafetyMiddleware(
         RequestDelegate next,
-        IConfiguration configuration,
-        IServiceScopeFactory scopeFactory,
-        IHostApplicationLifetime applicationLifetime,
-        ILoggerFactory loggerFactory)
+        IConfiguration configuration)
     {
         _next = next;
         _configuration = configuration;
-
-        DemoResetScheduler.Start(
-            scopeFactory,
-            configuration,
-            applicationLifetime,
-            loggerFactory);
     }
 
     public async Task InvokeAsync(HttpContext context)

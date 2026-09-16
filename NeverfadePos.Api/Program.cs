@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
+using NeverfadePos.Api.DemoMode;
 using NeverfadePos.Api.Middleware;
 using NeverfadePos.Api.Services.Absensi;
 using NeverfadePos.Api.Services.Attendance;
@@ -255,6 +256,12 @@ app.UseMiddleware<SharedPosSessionMiddleware>();
 app.UseAuthorization();
 
 await NeverfadePos.Api.Data.Seed.SeedData.InitializeAsync(app.Services, app.Configuration, app.Environment);
+
+DemoResetScheduler.Start(
+    app.Services.GetRequiredService<IServiceScopeFactory>(),
+    app.Configuration,
+    app.Lifetime,
+    app.Services.GetRequiredService<ILoggerFactory>());
 
 await using (var bootstrapScope = app.Services.CreateAsyncScope())
 {

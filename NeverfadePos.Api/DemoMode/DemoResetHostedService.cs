@@ -45,16 +45,6 @@ internal static class DemoResetScheduler
         {
             try
             {
-                await Task.Delay(interval, stoppingToken);
-            }
-            catch (OperationCanceledException)
-                when (stoppingToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            try
-            {
                 await ResetAsync(scopeFactory, stoppingToken);
                 logger.LogInformation(
                     "NeverFade public demo state reset completed.");
@@ -69,6 +59,16 @@ internal static class DemoResetScheduler
                 logger.LogError(
                     exception,
                     "NeverFade public demo reset failed; the next scheduled reset will retry.");
+            }
+
+            try
+            {
+                await Task.Delay(interval, stoppingToken);
+            }
+            catch (OperationCanceledException)
+                when (stoppingToken.IsCancellationRequested)
+            {
+                return;
             }
         }
     }
