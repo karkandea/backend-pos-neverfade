@@ -28,6 +28,7 @@ using NeverfadePos.Api.Services.SharedPos;
 using NeverfadePos.Api.Services.StockHistory;
 using NeverfadePos.Api.Services.Tenant;
 using NeverfadePos.Api.Services.Transaction;
+using NeverfadePos.Api.Services.WhatsApp;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -95,6 +96,7 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.Configure<XenditOptions>(builder.Configuration.GetSection("Xendit"));
 builder.Services.Configure<PaymentModeOptions>(builder.Configuration.GetSection("Payments"));
+builder.Services.Configure<WahaOptions>(builder.Configuration.GetSection("Waha"));
 builder.Services.AddSingleton<IPaymentModeGate, PaymentModeGate>();
 
 builder.Services.AddHttpClient<IXenditPaymentProvider, XenditPaymentProvider>(client =>
@@ -107,6 +109,24 @@ builder.Services.AddHttpClient<IXenditSandboxSimulator, XenditSandboxSimulator>(
 {
     client.BaseAddress = new Uri("https://api.xendit.co/");
     client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.AddHttpClient<IWahaClient, WahaClient>((services, client) =>
+{
+    var options = services
+        .GetRequiredService<Microsoft.Extensions.Options.IOptions<WahaOptions>>()
+        .Value;
+    var baseUrl = string.IsNullOrWhiteSpace(options.BaseUrl)
+        ? "http://waha:3000/"
+        : options.BaseUrl.Trim();
+
+    if (!baseUrl.EndsWith('/', StringComparison.Ordinal))
+    {
+        baseUrl += "/";
+    }
+
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(20);
 });
 
 builder.Services.AddScoped<CurrentUser>();
@@ -139,6 +159,7 @@ builder.Services.AddScoped<IEmployeeSharedAccessService, EmployeeSharedAccessSer
 builder.Services.AddScoped<ISharedPosService, SharedPosService>();
 builder.Services.AddScoped<ILaporanService, LaporanService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
+builder.Services.AddScoped<IWhatsAppReceiptService, WhatsAppReceiptService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ISandboxQrisQaService, SandboxQrisQaService>();
 builder.Services.AddScoped<ITenantFinanceService, TenantFinanceService>();
