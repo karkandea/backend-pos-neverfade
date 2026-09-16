@@ -37,7 +37,7 @@ internal static class DemoModeBootstrap
 
         await DemoSeedData.InitializeAsync(
             db,
-            trustedTenantExecutionScope: trustedTenantScope);
+            trustedTenantScope);
 
         using var tenantScope = trustedTenantScope.Begin(
             DemoModeDefaults.TenantId,
