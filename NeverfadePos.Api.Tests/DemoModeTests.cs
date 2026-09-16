@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -118,6 +119,7 @@ public sealed class DemoModeTests
     {
         private readonly string _databaseName =
             $"demo-mode-{Guid.NewGuid():N}";
+        private readonly InMemoryDatabaseRoot _databaseRoot = new();
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -168,7 +170,9 @@ public sealed class DemoModeTests
                 services.RemoveAll<
                     IDbContextOptionsConfiguration<AppDbContext>>();
                 services.AddDbContext<AppDbContext>(options =>
-                    options.UseInMemoryDatabase(_databaseName));
+                    options.UseInMemoryDatabase(
+                        _databaseName,
+                        _databaseRoot));
 
                 if (seedForeignTenantBeforeStartup)
                 {
