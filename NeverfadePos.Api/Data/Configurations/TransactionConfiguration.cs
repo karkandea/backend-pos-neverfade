@@ -17,6 +17,7 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.HasKey(x => x.Id);
 
         builder.HasIndex(x => x.TenantId);
+        builder.HasIndex(x => x.OutletId);
         builder.HasIndex(x => new { x.TenantId, x.NoTrx }).IsUnique();
 
         builder.Property(x => x.NoTrx).HasMaxLength(50).IsRequired();
@@ -41,6 +42,11 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
             .WithMany(x => x.Transactions)
             .HasForeignKey(x => x.TenantId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(x => x.Outlet)
+            .WithMany(x => x.Transactions)
+            .HasForeignKey(x => x.OutletId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(x => x.Customer)
             .WithMany(x => x.Transactions)
