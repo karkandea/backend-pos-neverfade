@@ -92,6 +92,18 @@ internal sealed class TenantProvisioningService(
             CreatedAt = now
         };
 
+        var defaultOutlet = new NeverfadePos.Api.Entities.Outlet
+        {
+            TenantId = tenantId,
+            Code = "MAIN",
+            Name = namaToko,
+            Address = string.Empty,
+            Phone = string.Empty,
+            IsDefault = true,
+            Active = true,
+            CreatedAt = now
+        };
+
         db.Tenants.Add(tenant);
         db.PlatformAuditEvents.Add(new PlatformAuditEvent
         {
@@ -107,6 +119,7 @@ internal sealed class TenantProvisioningService(
         {
             db.Users.Add(owner);
             db.Settings.Add(settings);
+            db.Outlets.Add(defaultOutlet);
 
             try
             {
