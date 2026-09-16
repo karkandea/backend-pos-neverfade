@@ -27,6 +27,15 @@ internal static class DemoModeBootstrap
                 "DemoMode cannot run while Payments:Mode is Live.");
         }
 
+        var resetIntervalMinutes =
+            configuration.GetValue<int?>("DemoMode:ResetIntervalMinutes") ?? 180;
+
+        if (resetIntervalMinutes is < 30 or > 1440)
+        {
+            throw new InvalidOperationException(
+                "DemoMode:ResetIntervalMinutes must be between 30 and 1440 minutes.");
+        }
+
         var demoPassword = configuration["DemoMode:Password"];
         if (string.IsNullOrWhiteSpace(demoPassword) ||
             demoPassword.Length < 16)
