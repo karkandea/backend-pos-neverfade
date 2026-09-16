@@ -2,19 +2,23 @@ using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Entities;
+using NeverfadePos.Api.Services.Outlet;
 
 namespace NeverfadePos.Api.Data;
 
 public class AppDbContext : DbContext
 {
     private readonly ITenantExecutionContext? _tenantExecutionContext;
+    private readonly IOutletExecutionContext? _outletExecutionContext;
 
     public AppDbContext(
         DbContextOptions<AppDbContext> options,
-        ITenantExecutionContext? tenantExecutionContext = null)
+        ITenantExecutionContext? tenantExecutionContext = null,
+        IOutletExecutionContext? outletExecutionContext = null)
         : base(options)
     {
         _tenantExecutionContext = tenantExecutionContext;
+        _outletExecutionContext = outletExecutionContext;
     }
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
@@ -92,6 +96,7 @@ public class AppDbContext : DbContext
 
     public override int SaveChanges()
     {
+        ApplyOutletSnapshots();
         ValidateTenantWrites();
 
         return base.SaveChanges();
@@ -100,6 +105,7 @@ public class AppDbContext : DbContext
     public override int SaveChanges(
         bool acceptAllChangesOnSuccess)
     {
+        ApplyOutletSnapshots();
         ValidateTenantWrites();
 
         return base.SaveChanges(
@@ -109,6 +115,7 @@ public class AppDbContext : DbContext
     public override Task<int> SaveChangesAsync(
         CancellationToken cancellationToken = default)
     {
+        ApplyOutletSnapshots();
         ValidateTenantWrites();
 
         return base.SaveChangesAsync(
@@ -119,6 +126,7 @@ public class AppDbContext : DbContext
         bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
+        ApplyOutletSnapshots();
         ValidateTenantWrites();
 
         return base.SaveChangesAsync(
@@ -132,6 +140,24 @@ public class AppDbContext : DbContext
     private Guid TargetTenantId =>
         _tenantExecutionContext?.TargetTenantId ??
         Guid.Empty;
+
+    private void ApplyOutletSnapshots()
+    {
+        var outletId = _outletExecutionContext?.OutletId;
+        if (!outletId.HasValue || outletId.Value == Guid.Empty)
+        {
+            return;
+        }
+
+        foreach (var entry in ChangeTracker
+            .Entries<Transaction>()
+            .Where(x =>
+                x.State == EntityState.Added &&
+                !x.Entity.OutletId.HasValue))
+        {
+            entry.Entity.OutletId = outletId.Value;
+        }
+    }
 
     private void ValidateTenantWrites()
     {
