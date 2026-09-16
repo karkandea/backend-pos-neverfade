@@ -338,6 +338,9 @@ public sealed class RetailReturnService(
 
             if (request.Type == RetailReturnTypes.Exchange && !item.ReplacementVariantId.HasValue)
                 throw new ArgumentException("Exchange wajib memilih varian pengganti.");
+
+            if (request.Type == RetailReturnTypes.Exchange && !item.Restock)
+                throw new ArgumentException("Exchange wajib mengembalikan stok varian asal.");
         }
     }
     private static RetailReturnDto MapDto(RetailReturn entity)

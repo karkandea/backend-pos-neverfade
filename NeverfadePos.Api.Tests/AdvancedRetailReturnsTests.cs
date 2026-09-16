@@ -100,6 +100,35 @@ public sealed partial class AdvancedRetailApiTests
         await AssertStockAsync(factory, setup.Product.Id, setup.Variant.Id, 9, 9);
     }
     [Fact]
+    public async Task Exchange_RejectsRestockFalse()
+    {
+        await using var factory = new AdvancedRetailFactory();
+        await EnableFashionRetailAsync(factory);
+        using var owner = await AuthClientAsync(factory, "owner");
+        var setup = await CreatePricedVariantAsync(owner, "TSHIRT-EXC-NORESTOCK");
+
+        var replacementResponse = await owner.PostAsJsonAsync(
+            "/api/retail/variants",
+            NewVariant(setup.Product.Id, "TSHIRT-EXC-NORESTOCK-L", "Black / L", 5));
+        var replacement = (await replacementResponse.Content.ReadFromJsonAsync<ProductVariantDto>())!;
+
+        var saleResponse = await PostCashAsync(
+            owner, setup.Product.Id, setup.Variant.Id, null, 2, 100m);
+        var sale = (await saleResponse.Content.ReadFromJsonAsync<TransactionDto>())!;
+        var item = Assert.Single(sale.Items);
+
+        var response = await owner.PostAsJsonAsync(
+            "/api/retail/returns",
+            NewExchangeRequest(sale.Id, item.TransactionItemId, replacement.Id, 1, false, "exchange-no-restock"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("wajib mengembalikan stok", await response.Content.ReadAsStringAsync());
+        await AssertExchangeStockAsync(
+            factory, setup.Product.Id, setup.Variant.Id, replacement.Id,
+            expectedProduct: 13, expectedOriginal: 8, expectedReplacement: 5);
+    }
+
+    [Fact]
     public async Task Exchange_RestocksOriginalAndDecrementsSiblingVariant()
     {
         await using var factory = new AdvancedRetailFactory();
