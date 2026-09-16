@@ -4,6 +4,8 @@ namespace NeverfadePos.Api.DTOs.Transaction;
 
 public sealed class CreateTransactionDto
 {
+    public Guid? OutletId { get; set; }
+
     public Guid? CustomerId { get; set; }
 
     [MinLength(1)]
