@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
+using NeverfadePos.Api.DemoMode;
 using NeverfadePos.Api.Entities;
 
 namespace NeverfadePos.Api.Data.Seed;
@@ -27,6 +28,19 @@ public static class SeedData
             scope.ServiceProvider
                 .GetRequiredService<ILoggerFactory>()
                 .CreateLogger("SeedData");
+
+        if (configuration.GetValue<bool>("DemoMode:Enabled"))
+        {
+            await DemoModeBootstrap.EnsureReadyAsync(
+                db,
+                trustedTenantScope,
+                configuration);
+
+            logger.LogInformation(
+                "Isolated NeverFade public demo data is ready.");
+
+            return;
+        }
 
         if (await db.Tenants.AnyAsync())
         {

@@ -249,6 +249,7 @@ app.UseHttpsRedirection();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseCors("Default");
 app.UseAuthentication();
+app.UseMiddleware<DemoSafetyMiddleware>();
 app.UseMiddleware<TenantStatusMiddleware>();
 app.UseMiddleware<SharedPosSessionMiddleware>();
 app.UseAuthorization();
