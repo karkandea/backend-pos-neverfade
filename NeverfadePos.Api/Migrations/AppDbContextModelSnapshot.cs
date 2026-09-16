@@ -560,6 +560,60 @@ namespace NeverfadePos.Api.Migrations
                     b.ToTable("laundry_work_order_status_history", (string)null);
                 });
 
+            modelBuilder.Entity("NeverfadePos.Api.Entities.Outlet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "IsDefault")
+                        .IsUnique()
+                        .HasFilter("\"IsDefault\" = TRUE");
+
+                    b.ToTable("outlets", (string)null);
+                });
+
             modelBuilder.Entity("NeverfadePos.Api.Entities.Payment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1890,6 +1944,9 @@ namespace NeverfadePos.Api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid?>("OutletId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -1922,6 +1979,8 @@ namespace NeverfadePos.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CustomerId");
+
+                    b.HasIndex("OutletId");
 
                     b.HasIndex("TenantId");
 
@@ -2073,6 +2132,73 @@ namespace NeverfadePos.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("NeverfadePos.Api.Entities.WhatsAppSender", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastConnectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastStatus")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("OutletId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("SessionName")
+                        .IsRequired()
+                        .HasMaxLength(220)
+                        .HasColumnType("character varying(220)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OutletId");
+
+                    b.HasIndex("SessionName")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "OutletId", "IsDefault")
+                        .IsUnique()
+                        .HasFilter("\"IsDefault\" = TRUE AND \"Active\" = TRUE");
+
+                    b.ToTable("whatsapp_senders", (string)null);
                 });
 
             modelBuilder.Entity("NeverfadePos.Api.Entities.WithdrawalBankAccount", b =>
@@ -2453,6 +2579,17 @@ namespace NeverfadePos.Api.Migrations
                     b.Navigation("ActorUser");
 
                     b.Navigation("LaundryWorkOrder");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("NeverfadePos.Api.Entities.Outlet", b =>
+                {
+                    b.HasOne("NeverfadePos.Api.Entities.Tenant", "Tenant")
+                        .WithMany("Outlets")
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Tenant");
                 });
@@ -2872,6 +3009,11 @@ namespace NeverfadePos.Api.Migrations
                         .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("NeverfadePos.Api.Entities.Outlet", "Outlet")
+                        .WithMany("Transactions")
+                        .HasForeignKey("OutletId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("NeverfadePos.Api.Entities.Tenant", "Tenant")
                         .WithMany("Transactions")
                         .HasForeignKey("TenantId")
@@ -2879,6 +3021,8 @@ namespace NeverfadePos.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Customer");
+
+                    b.Navigation("Outlet");
 
                     b.Navigation("Tenant");
                 });
@@ -2917,6 +3061,25 @@ namespace NeverfadePos.Api.Migrations
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("NeverfadePos.Api.Entities.WhatsAppSender", b =>
+                {
+                    b.HasOne("NeverfadePos.Api.Entities.Outlet", "Outlet")
+                        .WithMany("WhatsAppSenders")
+                        .HasForeignKey("OutletId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("NeverfadePos.Api.Entities.Tenant", "Tenant")
+                        .WithMany("WhatsAppSenders")
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Outlet");
 
                     b.Navigation("Tenant");
                 });
@@ -3012,6 +3175,13 @@ namespace NeverfadePos.Api.Migrations
                     b.Navigation("StatusHistory");
                 });
 
+            modelBuilder.Entity("NeverfadePos.Api.Entities.Outlet", b =>
+                {
+                    b.Navigation("Transactions");
+
+                    b.Navigation("WhatsAppSenders");
+                });
+
             modelBuilder.Entity("NeverfadePos.Api.Entities.Payment", b =>
                 {
                     b.Navigation("LedgerEntries");
@@ -3085,6 +3255,8 @@ namespace NeverfadePos.Api.Migrations
 
                     b.Navigation("Karyawans");
 
+                    b.Navigation("Outlets");
+
                     b.Navigation("PaymentLedgerEntries");
 
                     b.Navigation("PaymentRoutes");
@@ -3124,6 +3296,8 @@ namespace NeverfadePos.Api.Migrations
                     b.Navigation("Transactions");
 
                     b.Navigation("Users");
+
+                    b.Navigation("WhatsAppSenders");
 
                     b.Navigation("WithdrawalBankAccounts");
 
