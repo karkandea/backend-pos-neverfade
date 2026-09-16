@@ -1,8 +1,9 @@
 using System.Globalization;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
-using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
+using NeverfadePos.Api.Entities;
+using NeverfadePos.Api.Services.Outlet;
 
 namespace NeverfadePos.Api.Services.WhatsApp;
 
@@ -10,7 +11,9 @@ public sealed record WhatsAppConnectionStatus(
     bool Configured,
     string Status,
     string? PhoneNumber,
-    string? PushName);
+    string? PushName,
+    Guid? OutletId = null,
+    Guid? SenderId = null);
 
 public sealed record WhatsAppReceiptResult(
     string PhoneMasked);
@@ -18,15 +21,19 @@ public sealed record WhatsAppReceiptResult(
 public interface IWhatsAppReceiptService
 {
     Task<WhatsAppConnectionStatus> GetStatusAsync(
+        Guid? outletId,
         CancellationToken cancellationToken = default);
 
     Task<WhatsAppConnectionStatus> ConnectAsync(
+        Guid? outletId,
         CancellationToken cancellationToken = default);
 
     Task<WahaQrCode> GetQrAsync(
+        Guid? outletId,
         CancellationToken cancellationToken = default);
 
     Task LogoutAsync(
+        Guid? outletId,
         CancellationToken cancellationToken = default);
 
     Task<WhatsAppReceiptResult> SendReceiptAsync(
@@ -37,54 +44,129 @@ public interface IWhatsAppReceiptService
 
 public sealed class WhatsAppReceiptService(
     AppDbContext db,
-    ITenantExecutionContext tenantContext,
+    IOutletService outletService,
+    IWhatsAppSenderResolver senderResolver,
     IWahaClient wahaClient)
     : IWhatsAppReceiptService
 {
     public async Task<WhatsAppConnectionStatus> GetStatusAsync(
+        Guid? outletId,
         CancellationToken cancellationToken = default)
     {
-        var session = await wahaClient.GetSessionAsync(
-            GetSessionName(),
+        var outlet = await outletService.ResolveAsync(
+            outletId,
+            cancellationToken);
+        var sender = await senderResolver.FindDefaultAsync(
+            outlet.Id,
             cancellationToken);
 
-        return session is null
-            ? new WhatsAppConnectionStatus(
+        if (sender is null)
+        {
+            return new WhatsAppConnectionStatus(
                 false,
                 "NOT_CONFIGURED",
                 null,
-                null)
-            : ToStatus(session);
+                null,
+                outlet.Id,
+                null);
+        }
+
+        var session = await wahaClient.GetSessionAsync(
+            sender.SessionName,
+            cancellationToken);
+
+        if (session is null)
+        {
+            return new WhatsAppConnectionStatus(
+                false,
+                "NOT_CONFIGURED",
+                sender.PhoneNumber,
+                sender.DisplayName,
+                outlet.Id,
+                sender.Id);
+        }
+
+        await senderResolver.SyncStatusAsync(
+            sender,
+            session,
+            cancellationToken);
+
+        return ToStatus(outlet.Id, sender, session);
     }
 
     public async Task<WhatsAppConnectionStatus> ConnectAsync(
+        Guid? outletId,
         CancellationToken cancellationToken = default)
     {
+        var outlet = await outletService.ResolveAsync(
+            outletId,
+            cancellationToken);
+        var sender = await senderResolver.GetOrCreateDefaultAsync(
+            outlet.Id,
+            cancellationToken);
         var session = await wahaClient.EnsureSessionAsync(
-            GetSessionName(),
+            sender.SessionName,
             cancellationToken);
 
-        return ToStatus(session);
+        await senderResolver.SyncStatusAsync(
+            sender,
+            session,
+            cancellationToken);
+
+        return ToStatus(outlet.Id, sender, session);
     }
 
     public async Task<WahaQrCode> GetQrAsync(
+        Guid? outletId,
         CancellationToken cancellationToken = default)
     {
+        var outlet = await outletService.ResolveAsync(
+            outletId,
+            cancellationToken);
+        var sender = await senderResolver.GetOrCreateDefaultAsync(
+            outlet.Id,
+            cancellationToken);
+
         await wahaClient.EnsureSessionAsync(
-            GetSessionName(),
+            sender.SessionName,
             cancellationToken);
 
         return await wahaClient.GetQrAsync(
-            GetSessionName(),
+            sender.SessionName,
             cancellationToken);
     }
 
-    public Task LogoutAsync(
+    public async Task LogoutAsync(
+        Guid? outletId,
         CancellationToken cancellationToken = default)
     {
-        return wahaClient.LogoutAsync(
-            GetSessionName(),
+        var outlet = await outletService.ResolveAsync(
+            outletId,
             cancellationToken);
+        var sender = await senderResolver.FindDefaultAsync(
+            outlet.Id,
+            cancellationToken);
+
+        if (sender is null)
+        {
+            return;
+        }
+
+        await wahaClient.LogoutAsync(
+            sender.SessionName,
+            cancellationToken);
+
+        var session = await wahaClient.GetSessionAsync(
+            sender.SessionName,
+            cancellationToken);
+
+        if (session is not null)
+        {
+            await senderResolver.SyncStatusAsync(
+                sender,
+                session,
+                cancellationToken);
+        }
     }
 
     public async Task<WhatsAppReceiptResult> SendReceiptAsync(
@@ -93,8 +175,34 @@ public sealed class WhatsAppReceiptService(
         CancellationToken cancellationToken = default)
     {
         var phone = WhatsAppPhone.NormalizeIndonesia(phoneNumber);
+
+        var transaction = await db.Transactions
+            .AsNoTracking()
+            .Include(x => x.Items)
+            .Include(x => x.Outlet)
+            .FirstOrDefaultAsync(
+                x => x.Id == transactionId,
+                cancellationToken)
+            ?? throw new KeyNotFoundException(
+                "Transaksi tidak ditemukan.");
+
+        if (!string.Equals(
+                transaction.Status,
+                TransactionStatuses.Paid,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Struk WhatsApp hanya dapat dikirim untuk transaksi yang sudah berhasil.");
+        }
+
+        var sender = await senderResolver.FindDefaultAsync(
+            transaction.OutletId,
+            cancellationToken)
+            ?? throw new InvalidOperationException(
+                "WhatsApp outlet belum dikonfigurasi.");
+
         var session = await wahaClient.GetSessionAsync(
-            GetSessionName(),
+            sender.SessionName,
             cancellationToken);
 
         if (session is null ||
@@ -104,17 +212,13 @@ public sealed class WhatsAppReceiptService(
                 StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                "WhatsApp toko belum terhubung.");
+                "WhatsApp outlet belum terhubung.");
         }
 
-        var transaction = await db.Transactions
-            .AsNoTracking()
-            .Include(x => x.Items)
-            .FirstOrDefaultAsync(
-                x => x.Id == transactionId,
-                cancellationToken)
-            ?? throw new KeyNotFoundException(
-                "Transaksi tidak ditemukan.");
+        await senderResolver.SyncStatusAsync(
+            sender,
+            session,
+            cancellationToken);
 
         var settings = await db.Settings
             .AsNoTracking()
@@ -122,9 +226,14 @@ public sealed class WhatsAppReceiptService(
             ?? throw new KeyNotFoundException(
                 "Settings tidak ditemukan.");
 
+        var header = BuildOutletReceiptHeader(
+            settings.HeaderStruk,
+            settings.NamaToko,
+            transaction.Outlet);
+
         var message = BuildReceiptText(
             settings.NamaToko,
-            settings.HeaderStruk,
+            header,
             settings.FooterStruk,
             transaction.NoTrx,
             transaction.Tanggal,
@@ -145,7 +254,7 @@ public sealed class WhatsAppReceiptService(
             transaction.Kembalian);
 
         await wahaClient.SendTextAsync(
-            session.Name,
+            sender.SessionName,
             phone,
             message,
             cancellationToken);
@@ -154,23 +263,48 @@ public sealed class WhatsAppReceiptService(
             WhatsAppPhone.Mask(phone));
     }
 
-    private string GetSessionName()
-    {
-        var tenantId = tenantContext.TargetTenantId
-            ?? throw new InvalidOperationException(
-                "Tenant context tidak tersedia.");
-
-        return $"nf-{tenantId:N}";
-    }
-
     private static WhatsAppConnectionStatus ToStatus(
+        Guid outletId,
+        WhatsAppSender sender,
         WahaSessionInfo session)
     {
         return new WhatsAppConnectionStatus(
             true,
             session.Status,
             session.PhoneNumber,
-            session.PushName);
+            session.PushName,
+            outletId,
+            sender.Id);
+    }
+
+    private static string BuildOutletReceiptHeader(
+        string configuredHeader,
+        string storeName,
+        NeverfadePos.Api.Entities.Outlet? outlet)
+    {
+        var parts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(configuredHeader))
+        {
+            parts.Add(configuredHeader.Trim());
+        }
+
+        if (outlet is not null &&
+            !string.Equals(
+                outlet.Name.Trim(),
+                storeName.Trim(),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            parts.Add($"Outlet: {outlet.Name.Trim()}");
+        }
+
+        if (outlet is not null &&
+            !string.IsNullOrWhiteSpace(outlet.Address))
+        {
+            parts.Add(outlet.Address.Trim());
+        }
+
+        return string.Join(Environment.NewLine, parts);
     }
 
     private static string BuildItemName(
