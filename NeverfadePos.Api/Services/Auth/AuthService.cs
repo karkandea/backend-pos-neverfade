@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
+using NeverfadePos.Api.DemoMode;
 using NeverfadePos.Api.DTOs.Auth;
 
 namespace NeverfadePos.Api.Services.Auth;
@@ -10,13 +11,28 @@ namespace NeverfadePos.Api.Services.Auth;
 public sealed class AuthService(
     AppDbContext db,
     IJwtService jwtService,
-    CurrentUser currentUser)
+    CurrentUser currentUser,
+    ITrustedTenantExecutionScope trustedTenantExecutionScope,
+    IConfiguration configuration)
     : IAuthService
 {
     public async Task<LoginResponseDto> LoginAsync(
         LoginRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        if (configuration.GetValue<bool>("DemoMode:Enabled") &&
+            string.Equals(
+                request.Username,
+                DemoModeDefaults.Username,
+                StringComparison.Ordinal))
+        {
+            await DemoModeBootstrap.EnsureReadyAsync(
+                db,
+                trustedTenantExecutionScope,
+                configuration,
+                cancellationToken);
+        }
+
         var user = await db.Users
             .IgnoreQueryFilters()
             .AsNoTracking()
