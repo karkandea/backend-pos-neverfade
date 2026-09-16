@@ -4,6 +4,8 @@ namespace NeverfadePos.Api.Entities;
 
 public class Transaction : BaseEntity
 {
+    public Guid? OutletId { get; set; }
+
     public string NoTrx { get; set; } = string.Empty;
 
     public DateTime Tanggal { get; set; } = DateTime.UtcNow;
@@ -39,6 +41,8 @@ public class Transaction : BaseEntity
     public DateTime? FinalizedAt { get; set; }
 
     public Tenant? Tenant { get; set; }
+
+    public Outlet? Outlet { get; set; }
 
     public Customer? Customer { get; set; }
 

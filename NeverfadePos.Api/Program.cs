@@ -23,11 +23,13 @@ using NeverfadePos.Api.Services.Laundry;
 using NeverfadePos.Api.Services.Retail;
 using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Payments;
+using NeverfadePos.Api.Services.Outlet;
 using NeverfadePos.Api.Services.Settings;
 using NeverfadePos.Api.Services.SharedPos;
 using NeverfadePos.Api.Services.StockHistory;
 using NeverfadePos.Api.Services.Tenant;
 using NeverfadePos.Api.Services.Transaction;
+using NeverfadePos.Api.Services.WhatsApp;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -95,6 +97,7 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.Configure<XenditOptions>(builder.Configuration.GetSection("Xendit"));
 builder.Services.Configure<PaymentModeOptions>(builder.Configuration.GetSection("Payments"));
+builder.Services.Configure<WahaOptions>(builder.Configuration.GetSection("Waha"));
 builder.Services.AddSingleton<IPaymentModeGate, PaymentModeGate>();
 
 builder.Services.AddHttpClient<IXenditPaymentProvider, XenditPaymentProvider>(client =>
@@ -109,11 +112,32 @@ builder.Services.AddHttpClient<IXenditSandboxSimulator, XenditSandboxSimulator>(
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+builder.Services.AddHttpClient<IWahaClient, WahaClient>((services, client) =>
+{
+    var options = services
+        .GetRequiredService<Microsoft.Extensions.Options.IOptions<WahaOptions>>()
+        .Value;
+    var baseUrl = string.IsNullOrWhiteSpace(options.BaseUrl)
+        ? "http://waha:3000/"
+        : options.BaseUrl.Trim();
+
+    if (!baseUrl.EndsWith("/", StringComparison.Ordinal))
+    {
+        baseUrl += "/";
+    }
+
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
+
 builder.Services.AddScoped<CurrentUser>();
 builder.Services.AddScoped<PlatformCurrentUser>();
 builder.Services.AddScoped<TenantExecutionContext>();
 builder.Services.AddScoped<ITenantExecutionContext>(services => services.GetRequiredService<TenantExecutionContext>());
 builder.Services.AddScoped<ITrustedTenantExecutionScope>(services => services.GetRequiredService<TenantExecutionContext>());
+builder.Services.AddScoped<OutletExecutionContext>();
+builder.Services.AddScoped<IOutletExecutionContext>(services => services.GetRequiredService<OutletExecutionContext>());
+builder.Services.AddScoped<IOutletExecutionScope>(services => services.GetRequiredService<OutletExecutionContext>());
 
 builder.Services.AddScoped<TenantContextService>();
 builder.Services.AddScoped<ITenantContextService>(services => services.GetRequiredService<TenantContextService>());
@@ -128,6 +152,7 @@ builder.Services.AddScoped<TenantProvisioningService>();
 builder.Services.AddScoped<IPlatformTenantService, PlatformTenantService>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
+builder.Services.AddScoped<IOutletService, OutletService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IKaryawanService, KaryawanService>();
 builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
@@ -139,6 +164,8 @@ builder.Services.AddScoped<IEmployeeSharedAccessService, EmployeeSharedAccessSer
 builder.Services.AddScoped<ISharedPosService, SharedPosService>();
 builder.Services.AddScoped<ILaporanService, LaporanService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
+builder.Services.AddScoped<IWhatsAppSenderResolver, WhatsAppSenderResolver>();
+builder.Services.AddScoped<IWhatsAppReceiptService, WhatsAppReceiptService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ISandboxQrisQaService, SandboxQrisQaService>();
 builder.Services.AddScoped<ITenantFinanceService, TenantFinanceService>();

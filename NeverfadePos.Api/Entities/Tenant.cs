@@ -20,6 +20,8 @@ public class Tenant
 
     public ICollection<User> Users { get; set; } = new List<User>();
     public ICollection<Settings> Settings { get; set; } = new List<Settings>();
+    public ICollection<Outlet> Outlets { get; set; } = new List<Outlet>();
+    public ICollection<WhatsAppSender> WhatsAppSenders { get; set; } = new List<WhatsAppSender>();
     public ICollection<Product> Products { get; set; } = new List<Product>();
     public ICollection<Customer> Customers { get; set; } = new List<Customer>();
     public ICollection<Karyawan> Karyawans { get; set; } = new List<Karyawan>();
