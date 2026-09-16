@@ -6,6 +6,7 @@ using NeverfadePos.Api.DTOs.Payment;
 using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Payments.Xendit;
+using NeverfadePos.Api.Services.Outlet;
 using NeverfadePos.Api.Services.Payment;
 
 namespace NeverfadePos.Api.Controllers;
@@ -17,6 +18,8 @@ public sealed class PaymentController(
     IPaymentService paymentService,
     ISandboxQrisQaService sandboxQrisQaService,
     IXenditPaymentProvider xendit,
+    IOutletService outletService,
+    IOutletExecutionScope outletExecutionScope,
     AppDbContext db,
     ILogger<PaymentController> logger)
     : ControllerBase
@@ -36,6 +39,13 @@ public sealed class PaymentController(
             null,
             false,
             cancellationToken);
+
+        var outlet = await outletService.ResolveAsync(
+            request.OutletId,
+            cancellationToken);
+
+        using var outletScope = outletExecutionScope.Begin(
+            outlet.Id);
 
         return Ok(await paymentService.CreateQrisAsync(
             request,
