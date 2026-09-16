@@ -199,6 +199,7 @@ public sealed class WhatsAppReceiptService(
     {
         var culture = CultureInfo.GetCultureInfo("id-ID");
         var text = new StringBuilder();
+        var localTransactionDate = ToJakartaTime(transactionDate);
 
         text.AppendLine($"*{storeName.Trim()}*");
         if (!string.IsNullOrWhiteSpace(header))
@@ -208,7 +209,7 @@ public sealed class WhatsAppReceiptService(
 
         text.AppendLine($"No. Transaksi: {transactionNumber}");
         text.AppendLine(
-            transactionDate.ToLocalTime().ToString(
+            localTransactionDate.ToString(
                 "dd MMM yyyy, HH:mm",
                 culture));
         text.AppendLine("------------------------------");
@@ -260,6 +261,20 @@ public sealed class WhatsAppReceiptService(
         }
 
         return text.ToString().Trim();
+    }
+
+    private static DateTime ToJakartaTime(DateTime value)
+    {
+        var jakarta = TimeZoneInfo.FindSystemTimeZoneById("Asia/Jakarta");
+
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => TimeZoneInfo.ConvertTimeFromUtc(value, jakarta),
+            DateTimeKind.Local => TimeZoneInfo.ConvertTime(value, jakarta),
+            _ => TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.SpecifyKind(value, DateTimeKind.Utc),
+                jakarta)
+        };
     }
 
     private static string Money(
