@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
@@ -170,9 +171,13 @@ public sealed class DemoModeTests
                 services.RemoveAll<
                     IDbContextOptionsConfiguration<AppDbContext>>();
                 services.AddDbContext<AppDbContext>(options =>
-                    options.UseInMemoryDatabase(
-                        _databaseName,
-                        _databaseRoot));
+                    options
+                        .UseInMemoryDatabase(
+                            _databaseName,
+                            _databaseRoot)
+                        .ConfigureWarnings(warnings =>
+                            warnings.Ignore(
+                                InMemoryEventId.TransactionIgnoredWarning)));
 
                 if (seedForeignTenantBeforeStartup)
                 {
