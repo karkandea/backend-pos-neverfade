@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Outlet;
-using NeverfadePos.Api.Entities;
 
 namespace NeverfadePos.Api.Services.Outlet;
 
@@ -33,6 +32,8 @@ public sealed class OutletService(
     public async Task<List<OutletDto>> GetAllAsync(
         CancellationToken cancellationToken = default)
     {
+        await EnsureDefaultOutletAsync(cancellationToken);
+
         return await db.Outlets
             .AsNoTracking()
             .OrderByDescending(x => x.IsDefault)
@@ -144,33 +145,64 @@ public sealed class OutletService(
         Guid? outletId,
         CancellationToken cancellationToken = default)
     {
-        NeverfadePos.Api.Entities.Outlet? outlet;
-
         if (outletId.HasValue && outletId.Value != Guid.Empty)
         {
-            outlet = await db.Outlets
+            return await db.Outlets
                 .SingleOrDefaultAsync(
                     x => x.Id == outletId.Value && x.Active,
-                    cancellationToken);
-
-            if (outlet is null)
-            {
-                throw new KeyNotFoundException(
+                    cancellationToken)
+                ?? throw new KeyNotFoundException(
                     "Outlet aktif tidak ditemukan.");
-            }
-
-            return outlet;
         }
 
-        outlet = await db.Outlets
+        return await EnsureDefaultOutletAsync(cancellationToken);
+    }
+
+    private async Task<NeverfadePos.Api.Entities.Outlet> EnsureDefaultOutletAsync(
+        CancellationToken cancellationToken)
+    {
+        var active = await db.Outlets
             .Where(x => x.Active)
             .OrderByDescending(x => x.IsDefault)
             .ThenBy(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return outlet
-            ?? throw new InvalidOperationException(
-                "Tenant belum memiliki outlet aktif.");
+        if (active is not null)
+        {
+            if (!active.IsDefault)
+            {
+                await ClearDefaultAsync(active.Id, cancellationToken);
+                active.IsDefault = true;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            return active;
+        }
+
+        var tenantId = RequireTenantId();
+        var tenant = await db.Tenants
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                x => x.Id == tenantId,
+                cancellationToken)
+            ?? throw new KeyNotFoundException(
+                "Tenant tidak ditemukan.");
+
+        var entity = new NeverfadePos.Api.Entities.Outlet
+        {
+            TenantId = tenantId,
+            Code = "MAIN",
+            Name = tenant.NamaToko,
+            Address = string.Empty,
+            Phone = string.Empty,
+            IsDefault = true,
+            Active = true
+        };
+
+        db.Outlets.Add(entity);
+        await db.SaveChangesAsync(cancellationToken);
+
+        return entity;
     }
 
     private async Task ClearDefaultAsync(
