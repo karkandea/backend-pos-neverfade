@@ -121,7 +121,7 @@ builder.Services.AddHttpClient<IWahaClient, WahaClient>((services, client) =>
         ? "http://waha:3000/"
         : options.BaseUrl.Trim();
 
-    if (!baseUrl.EndsWith('/', StringComparison.Ordinal))
+    if (!baseUrl.EndsWith("/", StringComparison.Ordinal))
     {
         baseUrl += "/";
     }
