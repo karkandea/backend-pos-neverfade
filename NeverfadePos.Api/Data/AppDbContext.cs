@@ -22,6 +22,8 @@ public class AppDbContext : DbContext
     public DbSet<PlatformAuditEvent> PlatformAuditEvents => Set<PlatformAuditEvent>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Settings> Settings => Set<Settings>();
+    public DbSet<Outlet> Outlets => Set<Outlet>();
+    public DbSet<WhatsAppSender> WhatsAppSenders => Set<WhatsAppSender>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<PriceLevel> PriceLevels => Set<PriceLevel>();
@@ -53,7 +55,7 @@ public class AppDbContext : DbContext
     public DbSet<RestaurantOrderItem> RestaurantOrderItems => Set<RestaurantOrderItem>();
     public DbSet<LaundryWorkOrder> LaundryWorkOrders => Set<LaundryWorkOrder>();
     public DbSet<LaundryWorkOrderItem> LaundryWorkOrderItems => Set<LaundryWorkOrderItem>();
-    public DbSet<LaundryWorkOrderStatusHistory> LaundryWorkOrderStatusHistory => Set<LaundryWorkOrderStatusHistory>();
+    public DbSet<LaundryWorkOrderStatusHistory> LaundryWorkOrderStatusHistories => Set<LaundryWorkOrderStatusHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
