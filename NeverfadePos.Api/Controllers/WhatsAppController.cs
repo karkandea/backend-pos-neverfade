@@ -14,27 +14,33 @@ public sealed class WhatsAppController(
     [Authorize(Roles = "owner,admin")]
     [HttpGet("status")]
     public async Task<ActionResult<WhatsAppConnectionStatus>> GetStatus(
+        [FromQuery] Guid? outletId,
         CancellationToken cancellationToken)
     {
         return Ok(await whatsAppReceiptService.GetStatusAsync(
+            outletId,
             cancellationToken));
     }
 
     [Authorize(Roles = "owner,admin")]
     [HttpPost("connect")]
     public async Task<ActionResult<WhatsAppConnectionStatus>> Connect(
+        [FromQuery] Guid? outletId,
         CancellationToken cancellationToken)
     {
         return Ok(await whatsAppReceiptService.ConnectAsync(
+            outletId,
             cancellationToken));
     }
 
     [Authorize(Roles = "owner,admin")]
     [HttpGet("qr")]
     public async Task<IActionResult> GetQr(
+        [FromQuery] Guid? outletId,
         CancellationToken cancellationToken)
     {
         var qr = await whatsAppReceiptService.GetQrAsync(
+            outletId,
             cancellationToken);
 
         return Ok(new
@@ -47,9 +53,11 @@ public sealed class WhatsAppController(
     [Authorize(Roles = "owner,admin")]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout(
+        [FromQuery] Guid? outletId,
         CancellationToken cancellationToken)
     {
         await whatsAppReceiptService.LogoutAsync(
+            outletId,
             cancellationToken);
 
         return Ok(new { ok = true });
