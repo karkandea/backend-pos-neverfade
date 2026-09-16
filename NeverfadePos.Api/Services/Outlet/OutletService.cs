@@ -38,7 +38,16 @@ public sealed class OutletService(
             .AsNoTracking()
             .OrderByDescending(x => x.IsDefault)
             .ThenBy(x => x.Name)
-            .Select(x => Map(x))
+            .Select(x => new OutletDto
+            {
+                Id = x.Id,
+                Code = x.Code,
+                Name = x.Name,
+                Address = x.Address,
+                Phone = x.Phone,
+                IsDefault = x.IsDefault,
+                Active = x.Active
+            })
             .ToListAsync(cancellationToken);
     }
 
