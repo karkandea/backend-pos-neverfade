@@ -4,7 +4,7 @@ public sealed class TransactionDto
 {
     public Guid Id { get; set; }
 
-    public Guid OutletId { get; set; }
+    public Guid? OutletId { get; set; }
 
     public string OutletName { get; set; } = string.Empty;
 
