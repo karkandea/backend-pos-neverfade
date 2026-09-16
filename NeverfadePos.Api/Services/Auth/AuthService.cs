@@ -8,7 +8,7 @@ using NeverfadePos.Api.DTOs.Auth;
 
 namespace NeverfadePos.Api.Services.Auth;
 
-public sealed class AuthService(
+internal sealed class AuthService(
     AppDbContext db,
     IJwtService jwtService,
     CurrentUser currentUser,
