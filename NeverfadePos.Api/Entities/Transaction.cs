@@ -4,7 +4,7 @@ namespace NeverfadePos.Api.Entities;
 
 public class Transaction : BaseEntity
 {
-    public Guid OutletId { get; set; }
+    public Guid? OutletId { get; set; }
 
     public string NoTrx { get; set; } = string.Empty;
 
