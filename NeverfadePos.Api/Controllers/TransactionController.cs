@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NeverfadePos.Api.DTOs.Transaction;
+using NeverfadePos.Api.Services.Outlet;
 using NeverfadePos.Api.Services.Transaction;
 
 namespace NeverfadePos.Api.Controllers;
@@ -9,7 +10,9 @@ namespace NeverfadePos.Api.Controllers;
 [Authorize]
 [Route("api/transactions")]
 public sealed class TransactionController(
-    ITransactionService transactionService)
+    ITransactionService transactionService,
+    IOutletService outletService,
+    IOutletExecutionScope outletExecutionScope)
     : ControllerBase
 {
     [HttpGet]
@@ -41,6 +44,13 @@ public sealed class TransactionController(
         CreateTransactionDto request,
         CancellationToken cancellationToken)
     {
+        var outlet = await outletService.ResolveAsync(
+            request.OutletId,
+            cancellationToken);
+
+        using var outletScope = outletExecutionScope.Begin(
+            outlet.Id);
+
         return Ok(await transactionService.CreateAsync(
             request,
             cancellationToken));
