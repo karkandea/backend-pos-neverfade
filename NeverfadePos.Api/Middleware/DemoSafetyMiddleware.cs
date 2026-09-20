@@ -22,7 +22,7 @@ public sealed class DemoSafetyMiddleware
             !Guid.TryParse(
                 context.User.FindFirst("tenant_id")?.Value,
                 out var tenantId) ||
-            tenantId != DemoModeDefaults.TenantId)
+            !DemoModeDefaults.IsDemoTenant(tenantId))
         {
             await _next(context);
             return;
@@ -40,7 +40,7 @@ public sealed class DemoSafetyMiddleware
         await context.Response.WriteAsJsonAsync(new
         {
             code = "DEMO_READ_ONLY",
-            message = "Data master pada mode demo hanya dapat dilihat. Silakan coba transaksi melalui Kasir."
+            message = "Data master pada mode demo hanya dapat dilihat. Silakan coba alur transaksi bisnis yang tersedia."
         });
     }
 
@@ -49,9 +49,35 @@ public sealed class DemoSafetyMiddleware
         HttpMethods.IsHead(request.Method) ||
         HttpMethods.IsOptions(request.Method);
 
-    private static bool IsAllowedDemoMutation(HttpRequest request) =>
-        HttpMethods.IsPost(request.Method) &&
-        request.Path.Equals(
-            "/api/transactions",
-            StringComparison.OrdinalIgnoreCase);
+    private static bool IsAllowedDemoMutation(HttpRequest request)
+    {
+        if (HttpMethods.IsPost(request.Method) &&
+            request.Path.Equals(
+                "/api/transactions",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (request.Path.StartsWithSegments(
+                "/api/restaurant/orders",
+                StringComparison.OrdinalIgnoreCase) ||
+            request.Path.StartsWithSegments(
+                "/api/restaurant/kitchen",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return HttpMethods.IsPost(request.Method) ||
+                   HttpMethods.IsPut(request.Method) ||
+                   HttpMethods.IsDelete(request.Method);
+        }
+
+        if (request.Path.StartsWithSegments(
+                "/api/laundry/work-orders",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return HttpMethods.IsPost(request.Method);
+        }
+
+        return false;
+    }
 }

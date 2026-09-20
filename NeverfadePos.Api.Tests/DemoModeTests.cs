@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Auth;
 using NeverfadePos.Api.DTOs.Product;
+using NeverfadePos.Api.DTOs.Restaurant;
+using NeverfadePos.Api.DTOs.Laundry;
 using NeverfadePos.Api.DTOs.Transaction;
 using Xunit;
 
@@ -87,6 +90,107 @@ public sealed class DemoModeTests
             $"/api/products/{pants.Id}");
         Assert.NotNull(afterCheckout);
         Assert.Equal(23, afterCheckout.Stok);
+    }
+
+    [Fact]
+    public async Task PublicDemo_FoodBeverageSession_ExposesTablesAndKitchenQueue()
+    {
+        await using var factory = new DemoModeFactory();
+        using var client = factory.CreateClient();
+
+        var loginResponse = await client.PostAsync(
+            "/api/demo/session?businessType=food_beverage",
+            content: null);
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.Token);
+
+        var context = await client.GetFromJsonAsync<JsonElement>(
+            "/api/tenant/context");
+        Assert.Equal(
+            "food_beverage",
+            context.GetProperty("businessType").GetString());
+
+        var tables = await client.GetFromJsonAsync<List<RestaurantTableDto>>(
+            "/api/restaurant/tables");
+        Assert.NotNull(tables);
+        Assert.Equal(8, tables.Count);
+        Assert.Contains(tables, x => x.Status == "occupied");
+
+        var kitchen = await client.GetFromJsonAsync<List<KitchenQueueOrderDto>>(
+            "/api/restaurant/kitchen");
+        Assert.NotNull(kitchen);
+        Assert.NotEmpty(kitchen);
+        Assert.Contains(
+            kitchen.SelectMany(x => x.Items),
+            x => x.KitchenStatus == "queued" ||
+                 x.KitchenStatus == "preparing");
+
+        var blockedTableMasterMutation = await client.PostAsJsonAsync(
+            "/api/restaurant/tables",
+            new
+            {
+                code = "T99",
+                name = "Meja 99",
+                capacity = 2,
+                active = true,
+                sortOrder = 990
+            });
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            blockedTableMasterMutation.StatusCode);
+    }
+
+    [Fact]
+    public async Task PublicDemo_LaundrySession_ExposesWorkOrders()
+    {
+        await using var factory = new DemoModeFactory();
+        using var client = factory.CreateClient();
+
+        var loginResponse = await client.PostAsync(
+            "/api/demo/session?businessType=laundry",
+            content: null);
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.Token);
+
+        var context = await client.GetFromJsonAsync<JsonElement>(
+            "/api/tenant/context");
+        Assert.Equal(
+            "laundry",
+            context.GetProperty("businessType").GetString());
+
+        var workOrders = await client.GetFromJsonAsync<List<LaundryWorkOrderDto>>(
+            "/api/laundry/work-orders");
+        Assert.NotNull(workOrders);
+        Assert.Equal(2, workOrders.Count);
+        Assert.Contains(
+            workOrders,
+            x => x.Status == "received");
+        Assert.Contains(
+            workOrders,
+            x => x.Status == "in_progress");
+    }
+
+    [Fact]
+    public async Task PublicDemo_RejectsUnknownBusinessType()
+    {
+        await using var factory = new DemoModeFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync(
+            "/api/demo/session?businessType=unknown",
+            content: null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]

@@ -40,41 +40,44 @@ internal static class DemoModeBootstrap
             db,
             trustedTenantScope);
 
-        using var tenantScope = trustedTenantScope.Begin(
-            DemoModeDefaults.TenantId,
-            "demo-credential-bootstrap");
-
-        var demoUserExists = await db.Users
-            .AnyAsync(
-                x => x.Username == DemoModeDefaults.Username,
-                cancellationToken);
-
-        if (!demoUserExists)
+        foreach (var profile in DemoModeDefaults.Profiles)
         {
-            throw new InvalidOperationException(
-                "Demo user is missing after demo seed initialization.");
-        }
+            using var tenantScope = trustedTenantScope.Begin(
+                profile.TenantId,
+                $"demo-bootstrap:{profile.Key}");
 
-        var changed = false;
+            var demoUserExists = await db.Users
+                .AnyAsync(
+                    x => x.Username == profile.Username,
+                    cancellationToken);
 
-        var seededHistory = await db.Transactions
-            .Where(x => x.NoTrx.StartsWith("DEMO-"))
-            .ToListAsync(cancellationToken);
-
-        foreach (var transaction in seededHistory)
-        {
-            if (transaction.CreatedAt == transaction.Tanggal)
+            if (!demoUserExists)
             {
-                continue;
+                throw new InvalidOperationException(
+                    $"Demo user for '{profile.Key}' is missing after demo seed initialization.");
             }
 
-            transaction.CreatedAt = transaction.Tanggal;
-            changed = true;
-        }
+            var seededHistory = await db.Transactions
+                .Where(x => x.NoTrx.StartsWith("DEMO-"))
+                .ToListAsync(cancellationToken);
 
-        if (changed)
-        {
-            await db.SaveChangesAsync(cancellationToken);
+            var changed = false;
+
+            foreach (var transaction in seededHistory)
+            {
+                if (transaction.CreatedAt == transaction.Tanggal)
+                {
+                    continue;
+                }
+
+                transaction.CreatedAt = transaction.Tanggal;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
         }
     }
 }

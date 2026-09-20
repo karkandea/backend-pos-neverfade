@@ -18,6 +18,7 @@ public sealed class DemoSessionController(
     [AllowAnonymous]
     [HttpPost("session")]
     public async Task<ActionResult<LoginResponseDto>> CreateSession(
+        [FromQuery] string? businessType,
         CancellationToken cancellationToken)
     {
         if (!configuration.GetValue<bool>("DemoMode:Enabled"))
@@ -25,26 +26,36 @@ public sealed class DemoSessionController(
             return NotFound();
         }
 
+        if (!DemoModeDefaults.TryResolve(businessType, out var profile))
+        {
+            return BadRequest(new
+            {
+                code = "DEMO_BUSINESS_TYPE_INVALID",
+                message = "Jenis bisnis demo tidak tersedia."
+            });
+        }
+
         var tenantIds = await db.Tenants
             .AsNoTracking()
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
 
-        if (tenantIds.Count != 1 || tenantIds[0] != DemoModeDefaults.TenantId)
+        if (!DemoModeDefaults.IsExactDemoTenantSet(tenantIds))
         {
             throw new InvalidOperationException(
-                "Public demo session requires an isolated NeverFade demo database.");
+                "Public demo session requires an isolated NeverFade multi-business demo database.");
         }
 
         var user = await db.Users
             .IgnoreQueryFilters()
             .AsNoTracking()
             .SingleOrDefaultAsync(
-                x => x.TenantId == DemoModeDefaults.TenantId &&
-                     x.Username == DemoModeDefaults.Username &&
+                x => x.TenantId == profile.TenantId &&
+                     x.Username == profile.Username &&
                      x.Active,
                 cancellationToken)
-            ?? throw new InvalidOperationException("Demo user is not available.");
+            ?? throw new InvalidOperationException(
+                $"Demo user for '{profile.Key}' is not available.");
 
         return Ok(new LoginResponseDto
         {
