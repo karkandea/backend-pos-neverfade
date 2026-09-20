@@ -181,6 +181,41 @@ public sealed class DemoModeTests
     }
 
     [Fact]
+    public async Task PublicDemo_AuthenticatedSession_CanSwitchBusinessType()
+    {
+        await using var factory = new DemoModeFactory();
+        using var client = factory.CreateClient();
+
+        var firstResponse = await client.PostAsync(
+            "/api/demo/session?businessType=laundry",
+            content: null);
+        var first = await firstResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
+        Assert.NotNull(first);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", first.Token);
+
+        var switchResponse = await client.PostAsync(
+            "/api/demo/session?businessType=food_beverage",
+            content: null);
+
+        Assert.Equal(HttpStatusCode.OK, switchResponse.StatusCode);
+
+        var switched = await switchResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
+        Assert.NotNull(switched);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", switched.Token);
+
+        var context = await client.GetFromJsonAsync<JsonElement>(
+            "/api/tenant/context");
+
+        Assert.Equal(
+            "food_beverage",
+            context.GetProperty("businessType").GetString());
+    }
+
+    [Fact]
     public async Task PublicDemo_RejectsUnknownBusinessType()
     {
         await using var factory = new DemoModeFactory();
