@@ -6,13 +6,19 @@ public interface ILaporanService
 {
     Task<LaporanSummaryDto> GetSummaryAsync(
         string period,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null);
 
     Task<List<LaporanChartDto>> GetChartAsync(
         string period = "mingguan",
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null);
 
     Task<List<TopProductDto>> GetTopProductsAsync(
         string period,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null);
 }

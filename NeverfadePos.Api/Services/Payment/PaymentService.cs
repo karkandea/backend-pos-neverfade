@@ -142,6 +142,7 @@ internal sealed class PaymentService(
                     TracksStock = item.Product.TracksStock,
                     QuantityPrecision = item.Product.QuantityPrecision,
                     Unit = item.Product.Satuan,
+                    Note = item.Note,
                     Subtotal = item.Subtotal
                 }));
             db.Payments.Add(payment);
@@ -590,7 +591,8 @@ internal sealed class PaymentService(
                 resolved.UnitPrice,
                 resolved.PriceLevelId,
                 resolved.PriceLevelName,
-                resolved.Subtotal));
+                resolved.Subtotal,
+                item.Note?.Trim() ?? string.Empty));
         }
 
         var subtotal = Money(items.Sum(x => x.Subtotal));
@@ -722,7 +724,8 @@ internal sealed class PaymentService(
         decimal HargaJual,
         Guid? PriceLevelId,
         string PriceLevelName,
-        decimal Subtotal);
+        decimal Subtotal,
+        string Note);
 
     private sealed record TransactionDraft(
         NeverfadePos.Api.Entities.Customer? Customer,

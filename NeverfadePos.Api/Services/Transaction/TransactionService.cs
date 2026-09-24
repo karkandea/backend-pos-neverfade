@@ -198,7 +198,8 @@ public sealed class TransactionService(
                     resolved.UnitPrice,
                     resolved.PriceLevelId,
                     resolved.PriceLevelName,
-                    resolved.Subtotal));
+                    resolved.Subtotal,
+                    item.Note?.Trim() ?? string.Empty));
         }
 
         var subtotal =
@@ -390,6 +391,8 @@ public sealed class TransactionService(
                     Unit =
                         item.Product.Satuan,
 
+                    Note = item.Note,
+
                     Subtotal =
                         item.Subtotal
                 });
@@ -508,7 +511,8 @@ public sealed class TransactionService(
             decimal HargaJual,
             Guid? PriceLevelId,
             string PriceLevelName,
-            decimal Subtotal);
+            decimal Subtotal,
+            string Note);
 
     private static System.Linq.Expressions.Expression<
         Func<
@@ -545,6 +549,7 @@ public sealed class TransactionService(
                         TracksStock = i.TracksStock,
                         QuantityPrecision = i.QuantityPrecision,
                         Unit = i.Unit,
+                        Note = i.Note,
                         Subtotal = i.Subtotal
                     })
                 .ToList(),
@@ -599,6 +604,7 @@ public sealed class TransactionService(
                         TracksStock = i.TracksStock,
                         QuantityPrecision = i.QuantityPrecision,
                         Unit = i.Unit,
+                        Note = i.Note,
                         Subtotal = i.Subtotal
                     })
                 .ToList(),

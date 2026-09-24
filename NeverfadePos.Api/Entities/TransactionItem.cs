@@ -38,6 +38,8 @@ public class TransactionItem : BaseEntity
 
     public decimal Subtotal { get; set; }
 
+    public string Note { get; set; } = string.Empty;
+
     public Tenant? Tenant { get; set; }
 
     public Transaction? Transaction { get; set; }

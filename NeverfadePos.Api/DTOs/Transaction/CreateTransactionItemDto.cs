@@ -25,4 +25,7 @@ public sealed class CreateTransactionItemDto
 
     [Range(0, double.MaxValue)]
     public decimal Subtotal { get; set; }
+
+    [StringLength(500)]
+    public string? Note { get; set; }
 }
