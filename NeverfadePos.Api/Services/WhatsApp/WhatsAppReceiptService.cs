@@ -18,8 +18,18 @@ public sealed record WhatsAppConnectionStatus(
 public sealed record WhatsAppReceiptResult(
     string PhoneMasked);
 
+// An availability check only; never implies that a receipt was delivered.
+public sealed record WhatsAppReceiptAvailability(
+    bool Configured,
+    bool Connected,
+    string Status);
+
 public interface IWhatsAppReceiptService
 {
+    Task<WhatsAppReceiptAvailability> GetReceiptAvailabilityAsync(
+        Guid transactionId,
+        CancellationToken cancellationToken = default);
+
     Task<WhatsAppConnectionStatus> GetStatusAsync(
         Guid? outletId,
         CancellationToken cancellationToken = default);
@@ -49,6 +59,35 @@ public sealed class WhatsAppReceiptService(
     IWahaClient wahaClient)
     : IWhatsAppReceiptService
 {
+    public async Task<WhatsAppReceiptAvailability> GetReceiptAvailabilityAsync(
+        Guid transactionId,
+        CancellationToken cancellationToken = default)
+    {
+        // Transaction entity is scoped by the application's tenant query filters.
+        var transaction = await db.Transactions.AsNoTracking()
+            .Where(x => x.Id == transactionId)
+            .Select(x => new { x.OutletId })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Transaksi tidak ditemukan.");
+
+        // Legacy transactions may have no outlet snapshot; sender resolver
+        // then resolves the tenant's default active outlet, like SendReceiptAsync.
+        var sender = await senderResolver.FindDefaultAsync(
+            transaction.OutletId, cancellationToken);
+        if (sender is null)
+        {
+            return new WhatsAppReceiptAvailability(
+                false, false, "NOT_CONFIGURED");
+        }
+
+        var session = await wahaClient.GetSessionAsync(
+            sender.SessionName, cancellationToken);
+        var connected = string.Equals(session?.Status, "WORKING",
+            StringComparison.OrdinalIgnoreCase);
+        return new WhatsAppReceiptAvailability(
+            true, connected, session?.Status ?? "DISCONNECTED");
+    }
+
     public async Task<WhatsAppConnectionStatus> GetStatusAsync(
         Guid? outletId,
         CancellationToken cancellationToken = default)

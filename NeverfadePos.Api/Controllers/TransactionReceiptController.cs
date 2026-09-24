@@ -19,6 +19,15 @@ public sealed class TransactionReceiptController(
     IWhatsAppReceiptService whatsAppReceiptService)
     : ControllerBase
 {
+    [HttpGet("whatsapp/status")]
+    public async Task<ActionResult<WhatsAppReceiptAvailability>> GetWhatsAppStatus(
+        Guid transactionId,
+        CancellationToken cancellationToken)
+    {
+        return Ok(await whatsAppReceiptService.GetReceiptAvailabilityAsync(
+            transactionId, cancellationToken));
+    }
+
     [HttpPost("whatsapp")]
     public async Task<ActionResult<WhatsAppReceiptResult>> SendWhatsApp(
         Guid transactionId,
