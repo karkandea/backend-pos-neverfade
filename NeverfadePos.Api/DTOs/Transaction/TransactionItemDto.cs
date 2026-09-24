@@ -37,4 +37,6 @@ public sealed class TransactionItemDto
     public string Unit { get; set; } = string.Empty;
 
     public decimal Subtotal { get; set; }
+
+    public string Note { get; set; } = string.Empty;
 }

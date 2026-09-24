@@ -27,17 +27,20 @@ public sealed class LaporanService(AppDbContext db)
 
     public async Task<LaporanSummaryDto> GetSummaryAsync(
         string period,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null)
     {
-        var startUtc =
-            GetStartUtc(period);
+        var startUtc = GetStartUtc(period, startDate);
+        var endUtc = GetEndUtc(endDate);
 
         var query = db.Transactions
             .AsNoTracking()
             .Where(
                 x =>
                     x.Status == TransactionStatuses.Paid &&
-                    x.CreatedAt >= startUtc);
+                    x.CreatedAt >= startUtc &&
+                    x.CreatedAt < endUtc);
 
         var omzet =
             await query
@@ -78,7 +81,9 @@ public sealed class LaporanService(AppDbContext db)
 
     public async Task<List<LaporanChartDto>> GetChartAsync(
         string period = "mingguan",
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null)
     {
         // Existing clients without a period keep the seven-day chart.
         var selected = period?.Trim().ToLowerInvariant() switch
@@ -89,21 +94,28 @@ public sealed class LaporanService(AppDbContext db)
             _ => "mingguan"
         };
         var todayWib = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Wib).Date;
-        var startWib = selected switch
+        var custom = startDate.HasValue && endDate.HasValue;
+        var customDays = custom ? endDate!.Value.DayNumber - startDate!.Value.DayNumber + 1 : 0;
+        var customMonthly = custom && customDays > 31;
+        var startWib = custom ? startDate!.Value.ToDateTime(TimeOnly.MinValue) : selected switch
         {
             "mingguan" => todayWib.AddDays(-6),
             "bulanan" => new DateTime(todayWib.Year, todayWib.Month, 1),
             "tahunan" => new DateTime(todayWib.Year, 1, 1),
             _ => todayWib
         };
-        var bucketCount = selected switch
-        {
-            "harian" => 24,
-            "mingguan" => 7,
-            "bulanan" => todayWib.Day,
-            _ => todayWib.Month
-        };
-        var endWib = todayWib.AddDays(1);
+        var bucketStartWib = customMonthly ? new DateTime(startWib.Year, startWib.Month, 1) : startWib;
+        var bucketCount = custom ? customMonthly
+            ? (endDate!.Value.Year - startWib.Year) * 12 + endDate.Value.Month - startWib.Month + 1
+            : customDays
+            : selected switch
+            {
+                "harian" => 24,
+                "mingguan" => 7,
+                "bulanan" => todayWib.Day,
+                _ => todayWib.Month
+            };
+        var endWib = custom ? endDate!.Value.AddDays(1).ToDateTime(TimeOnly.MinValue) : todayWib.AddDays(1);
 
         var startUtc =
             TimeZoneInfo.ConvertTimeToUtc(
@@ -136,6 +148,10 @@ public sealed class LaporanService(AppDbContext db)
             .GroupBy(x =>
             {
                 var local = ToWibDateTime(x.CreatedAt);
+                if (customMonthly)
+                    return (local.Year - startWib.Year) * 12 + local.Month - startWib.Month;
+                if (custom)
+                    return (local.Date - startWib).Days;
                 return selected switch
                 {
                     "harian" => local.Hour,
@@ -150,7 +166,7 @@ public sealed class LaporanService(AppDbContext db)
 
         for (var index = 0; index < bucketCount; index++)
         {
-            var bucket = selected switch
+            var bucket = customMonthly ? bucketStartWib.AddMonths(index) : custom ? startWib.AddDays(index) : selected switch
             {
                 "harian" => startWib.AddHours(index),
                 "tahunan" => startWib.AddMonths(index),
@@ -160,13 +176,14 @@ public sealed class LaporanService(AppDbContext db)
 
             result.Add(new LaporanChartDto
             {
-                Date = selected switch
+                Date = customMonthly ? bucket.ToString("yyyy-MM") : custom ? bucket.ToString("yyyy-MM-dd") : selected switch
                 {
                     "harian" => bucket.ToString("yyyy-MM-dd'T'HH':'mm", System.Globalization.CultureInfo.InvariantCulture),
                     "tahunan" => bucket.ToString("yyyy-MM"),
                     _ => bucket.ToString("yyyy-MM-dd")
                 },
-                Label = selected switch
+                Label = customMonthly ? bucket.ToString("MMM yy", System.Globalization.CultureInfo.GetCultureInfo("id-ID"))
+                    : custom ? bucket.ToString("dd MMM", System.Globalization.CultureInfo.GetCultureInfo("id-ID")) : selected switch
                 {
                     "harian" => bucket.ToString("HH.00"),
                     "mingguan" => Hari[(int)bucket.DayOfWeek],
@@ -183,18 +200,20 @@ public sealed class LaporanService(AppDbContext db)
     public async Task<List<TopProductDto>>
         GetTopProductsAsync(
             string period,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            DateOnly? startDate = null,
+            DateOnly? endDate = null)
     {
-        var startUtc =
-            GetStartUtc(period);
+        var startUtc = GetStartUtc(period, startDate);
+        var endUtc = GetEndUtc(endDate);
 
         return await db.TransactionItems
             .AsNoTracking()
             .Where(
                 x =>
                     x.Transaction!.Status == TransactionStatuses.Paid &&
-                    x.Transaction!.CreatedAt >=
-                    startUtc)
+                    x.Transaction!.CreatedAt >= startUtc &&
+                    x.Transaction!.CreatedAt < endUtc)
             .GroupBy(
                 x => x.Nama)
             .Select(
@@ -236,9 +255,21 @@ public sealed class LaporanService(AppDbContext db)
         return wib;
     }
 
-    private static DateTime GetStartUtc(
-        string period)
+    private static DateTime GetEndUtc(DateOnly? customEndDate)
     {
+        var exclusiveWib = customEndDate.HasValue
+            ? customEndDate.Value.AddDays(1).ToDateTime(TimeOnly.MinValue)
+            : TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Wib).Date.AddDays(1);
+        return TimeZoneInfo.ConvertTimeToUtc(exclusiveWib, Wib);
+    }
+
+    private static DateTime GetStartUtc(
+        string period,
+        DateOnly? customStartDate = null)
+    {
+        if (customStartDate.HasValue)
+            return TimeZoneInfo.ConvertTimeToUtc(customStartDate.Value.ToDateTime(TimeOnly.MinValue), Wib);
+
         var now =
             TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.UtcNow,

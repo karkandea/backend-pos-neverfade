@@ -59,6 +59,10 @@ public class TransactionItemConfiguration : IEntityTypeConfiguration<Transaction
         builder.Property(x => x.Subtotal)
             .HasPrecision(18,2);
 
+        builder.Property(x => x.Note)
+            .HasMaxLength(500)
+            .IsRequired();
+
         builder.HasOne(x => x.Tenant)
             .WithMany(x => x.TransactionItems)
             .HasForeignKey(x => x.TenantId)

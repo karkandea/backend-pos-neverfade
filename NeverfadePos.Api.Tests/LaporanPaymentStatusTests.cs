@@ -75,6 +75,37 @@ public sealed class LaporanPaymentStatusTests
         Assert.Equal(7, (await service.GetChartAsync()).Count);
     }
 
+    [Fact]
+    public async Task CustomDateRange_AppliesToSummaryChartAndTopProducts()
+    {
+        var tenantId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"laporan-custom-{Guid.NewGuid():N}").Options;
+        await using var db = new AppDbContext(options, CreateContext(tenantId));
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Jakarta");
+        var localToday = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone).Date;
+        var yesterday = DateOnly.FromDateTime(localToday.AddDays(-1));
+        var today = DateOnly.FromDateTime(localToday);
+        var included = NewTransaction(tenantId, TransactionStatuses.Paid, "IN-RANGE", 125m);
+        included.CreatedAt = TimeZoneInfo.ConvertTimeToUtc(localToday.AddDays(-1).AddHours(12), zone);
+        var excluded = NewTransaction(tenantId, TransactionStatuses.Paid, "OUT-RANGE", 900m);
+        excluded.CreatedAt = TimeZoneInfo.ConvertTimeToUtc(localToday.AddDays(-3).AddHours(12), zone);
+        db.Transactions.AddRange(included, excluded);
+        await db.SaveChangesAsync();
+
+        var service = new LaporanService(db);
+        var summary = await service.GetSummaryAsync("harian", default, yesterday, today);
+        var chart = await service.GetChartAsync("harian", default, yesterday, today);
+        var products = await service.GetTopProductsAsync("harian", default, yesterday, today);
+        Assert.Equal(125m, summary.Omzet);
+        Assert.Equal(2, chart.Count);
+        Assert.Equal(125m, chart.Sum(item => item.Total));
+        Assert.Equal("IN-RANGE", Assert.Single(products).Nama);
+        var monthly = await service.GetChartAsync("harian", default, today.AddDays(-40), today);
+        Assert.InRange(monthly.Count, 2, 3);
+        Assert.All(monthly, item => Assert.Equal(7, item.Date.Length));
+    }
+
     private static Transaction NewTransaction(
         Guid tenantId,
         string status,
