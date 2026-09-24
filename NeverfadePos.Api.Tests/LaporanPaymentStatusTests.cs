@@ -42,6 +42,39 @@ public sealed class LaporanPaymentStatusTests
         Assert.Equal(100m, product.Revenue);
     }
 
+    [Fact]
+    public async Task Chart_UsesSelectedPeriodAndOnlyPaidTransactions()
+    {
+        var tenantId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"laporan-period-{Guid.NewGuid():N}").Options;
+        await using var db = new AppDbContext(options, CreateContext(tenantId));
+        db.Transactions.AddRange(
+            NewTransaction(tenantId, TransactionStatuses.Paid, "PAID", 125m),
+            NewTransaction(tenantId, TransactionStatuses.PendingPayment, "PENDING", 900m));
+        await db.SaveChangesAsync();
+
+        var service = new LaporanService(db);
+        var wib = TimeZoneInfo.FindSystemTimeZoneById(
+            OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Jakarta");
+        var today = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, wib);
+        var daily = await service.GetChartAsync("harian");
+        var weekly = await service.GetChartAsync("mingguan");
+        var monthly = await service.GetChartAsync("bulanan");
+        var yearly = await service.GetChartAsync("tahunan");
+
+        Assert.Equal(24, daily.Count);
+        Assert.Equal(7, weekly.Count);
+        Assert.Equal(today.Day, monthly.Count);
+        Assert.Equal(today.Month, yearly.Count);
+        Assert.Equal($"{today:yyyy-MM-dd}T00:00", daily[0].Date);
+        Assert.Equal(125m, daily.Sum(item => item.Total));
+        Assert.Equal(125m, weekly.Sum(item => item.Total));
+        Assert.Equal(125m, monthly.Sum(item => item.Total));
+        Assert.Equal(125m, yearly.Sum(item => item.Total));
+        Assert.Equal(7, (await service.GetChartAsync()).Count);
+    }
+
     private static Transaction NewTransaction(
         Guid tenantId,
         string status,

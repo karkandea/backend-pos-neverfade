@@ -9,6 +9,7 @@ public interface ILaporanService
         CancellationToken cancellationToken = default);
 
     Task<List<LaporanChartDto>> GetChartAsync(
+        string period = "mingguan",
         CancellationToken cancellationToken = default);
 
     Task<List<TopProductDto>> GetTopProductsAsync(

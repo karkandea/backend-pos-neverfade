@@ -24,9 +24,11 @@ public sealed class LaporanController(
 
     [HttpGet("chart")]
     public async Task<ActionResult<List<LaporanChartDto>>> Chart(
+        [FromQuery] string period = "mingguan",
         CancellationToken cancellationToken = default)
     {
         return Ok(await laporanService.GetChartAsync(
+            period,
             cancellationToken));
     }
 
