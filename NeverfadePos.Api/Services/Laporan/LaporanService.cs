@@ -77,21 +77,33 @@ public sealed class LaporanService(AppDbContext db)
     }
 
     public async Task<List<LaporanChartDto>> GetChartAsync(
+        string period = "mingguan",
         CancellationToken cancellationToken = default)
     {
-        var nowWib =
-            TimeZoneInfo.ConvertTimeFromUtc(
-                DateTime.UtcNow,
-                Wib);
-
-        var todayWib =
-            nowWib.Date;
-
-        var startWib =
-            todayWib.AddDays(-6);
-
-        var endWib =
-            todayWib.AddDays(1);
+        // Existing clients without a period keep the seven-day chart.
+        var selected = period?.Trim().ToLowerInvariant() switch
+        {
+            "harian" => "harian",
+            "bulanan" => "bulanan",
+            "tahunan" => "tahunan",
+            _ => "mingguan"
+        };
+        var todayWib = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Wib).Date;
+        var startWib = selected switch
+        {
+            "mingguan" => todayWib.AddDays(-6),
+            "bulanan" => new DateTime(todayWib.Year, todayWib.Month, 1),
+            "tahunan" => new DateTime(todayWib.Year, 1, 1),
+            _ => todayWib
+        };
+        var bucketCount = selected switch
+        {
+            "harian" => 24,
+            "mingguan" => 7,
+            "bulanan" => todayWib.Day,
+            _ => todayWib.Month
+        };
+        var endWib = todayWib.AddDays(1);
 
         var startUtc =
             TimeZoneInfo.ConvertTimeToUtc(
@@ -120,47 +132,49 @@ public sealed class LaporanService(AppDbContext db)
                 .ToListAsync(
                     cancellationToken);
 
-        var totalsByWibDate =
-            raw
-                .GroupBy(
-                    x =>
-                        ToWibDate(
-                            x.CreatedAt))
-                .ToDictionary(
-                    x => x.Key,
-                    x => x.Sum(
-                        y => y.Total));
-
-        var result =
-            new List<LaporanChartDto>(
-                capacity: 7);
-
-        for (var i = 0; i < 7; i++)
-        {
-            var day =
-                startWib.AddDays(i);
-
-            var date =
-                DateOnly.FromDateTime(day);
-
-            totalsByWibDate.TryGetValue(
-                date,
-                out var total);
-
-            result.Add(
-                new LaporanChartDto
+        var totals = raw
+            .GroupBy(x =>
+            {
+                var local = ToWibDateTime(x.CreatedAt);
+                return selected switch
                 {
-                    Date =
-                        day.ToString(
-                            "yyyy-MM-dd"),
+                    "harian" => local.Hour,
+                    "bulanan" => local.Day - 1,
+                    "tahunan" => local.Month - 1,
+                    _ => (local.Date - startWib).Days
+                };
+            })
+            .ToDictionary(group => group.Key, group => group.Sum(x => x.Total));
 
-                    Label =
-                        Hari[
-                            (int)day.DayOfWeek],
+        var result = new List<LaporanChartDto>(bucketCount);
 
-                    Total =
-                        total
-                });
+        for (var index = 0; index < bucketCount; index++)
+        {
+            var bucket = selected switch
+            {
+                "harian" => startWib.AddHours(index),
+                "tahunan" => startWib.AddMonths(index),
+                _ => startWib.AddDays(index)
+            };
+            totals.TryGetValue(index, out var total);
+
+            result.Add(new LaporanChartDto
+            {
+                Date = selected switch
+                {
+                    "harian" => bucket.ToString("yyyy-MM-dd'T'HH':'mm", System.Globalization.CultureInfo.InvariantCulture),
+                    "tahunan" => bucket.ToString("yyyy-MM"),
+                    _ => bucket.ToString("yyyy-MM-dd")
+                },
+                Label = selected switch
+                {
+                    "harian" => bucket.ToString("HH.00"),
+                    "mingguan" => Hari[(int)bucket.DayOfWeek],
+                    "bulanan" => bucket.ToString("dd"),
+                    _ => bucket.ToString("MMM", System.Globalization.CultureInfo.GetCultureInfo("id-ID"))
+                },
+                Total = total
+            });
         }
 
         return result;
@@ -204,7 +218,7 @@ public sealed class LaporanService(AppDbContext db)
                 cancellationToken);
     }
 
-    private static DateOnly ToWibDate(
+    private static DateTime ToWibDateTime(
         DateTime utc)
     {
         var normalizedUtc =
@@ -219,8 +233,7 @@ public sealed class LaporanService(AppDbContext db)
                 normalizedUtc,
                 Wib);
 
-        return DateOnly.FromDateTime(
-            wib);
+        return wib;
     }
 
     private static DateTime GetStartUtc(
