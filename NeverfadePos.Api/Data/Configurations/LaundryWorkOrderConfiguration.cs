@@ -24,6 +24,7 @@ public sealed class LaundryWorkOrderConfiguration
         builder.HasKey(x => x.Id);
         builder.HasIndex(x => new { x.TenantId, x.OrderNumber }).IsUnique();
         builder.HasIndex(x => new { x.TenantId, x.Status, x.CreatedAt });
+        builder.HasIndex(x => new { x.TenantId, x.OutletId, x.Status, x.CreatedAt });
         builder.HasIndex(x => x.CustomerId);
         builder.HasIndex(x => x.TransactionId)
             .IsUnique()
@@ -39,6 +40,11 @@ public sealed class LaundryWorkOrderConfiguration
             .WithMany()
             .HasForeignKey(x => x.TenantId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<Outlet>()
+            .WithMany()
+            .HasForeignKey(x => x.OutletId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(x => x.Customer)
             .WithMany()

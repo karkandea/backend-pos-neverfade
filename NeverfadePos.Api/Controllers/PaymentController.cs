@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Data;
+using NeverfadePos.Api.Common;
 using NeverfadePos.Api.DTOs.Payment;
 using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
@@ -35,17 +36,10 @@ public sealed class PaymentController(
         CreateTransactionDto request,
         CancellationToken cancellationToken)
     {
-        await ReconcileExpiredPaymentsAsync(
-            null,
-            false,
-            cancellationToken);
-
         var outlet = await outletService.ResolveAsync(
-            request.OutletId,
-            cancellationToken);
-
-        using var outletScope = outletExecutionScope.Begin(
-            outlet.Id);
+            request.OutletId, cancellationToken);
+        using var outletScope = outletExecutionScope.Begin(outlet.Id);
+        await ReconcileExpiredPaymentsAsync(null, false, outlet.Id, cancellationToken);
 
         return Ok(await paymentService.CreateQrisAsync(
             request,
@@ -66,12 +60,11 @@ public sealed class PaymentController(
     [HttpGet("{paymentId:guid}")]
     public async Task<ActionResult<PaymentStatusDto>> GetStatus(
         Guid paymentId,
+        [FromHeader(Name = "X-Outlet-Id")] Guid? selectedOutletId,
         CancellationToken cancellationToken)
     {
-        await ReconcileExpiredPaymentsAsync(
-            paymentId,
-            false,
-            cancellationToken);
+        var outletId = await RequirePaymentOutletAsync(paymentId, selectedOutletId, cancellationToken);
+        await ReconcileExpiredPaymentsAsync(paymentId, false, outletId, cancellationToken);
 
         return Ok(await paymentService.GetStatusAsync(
             paymentId,
@@ -81,24 +74,23 @@ public sealed class PaymentController(
     [HttpPost("{paymentId:guid}/cancel")]
     public async Task<ActionResult<PaymentStatusDto>> Cancel(
         Guid paymentId,
+        [FromHeader(Name = "X-Outlet-Id")] Guid? selectedOutletId,
         CancellationToken cancellationToken)
     {
-        await ReconcileExpiredPaymentsAsync(
-            paymentId,
-            true,
-            cancellationToken);
+        var outletId = await RequirePaymentOutletAsync(paymentId, selectedOutletId, cancellationToken);
+        await ReconcileExpiredPaymentsAsync(paymentId, true, outletId, cancellationToken);
 
         return Ok(await paymentService.CancelAsync(paymentId, cancellationToken));
     }
 
     [HttpGet("current")]
     public async Task<ActionResult<PaymentStatusDto>> GetCurrent(
+        [FromHeader(Name = "X-Outlet-Id")] Guid? selectedOutletId,
         CancellationToken cancellationToken)
     {
-        await ReconcileExpiredPaymentsAsync(
-            null,
-            false,
-            cancellationToken);
+        var outlet = await outletService.ResolveAsync(selectedOutletId, cancellationToken);
+        using var outletScope = outletExecutionScope.Begin(outlet.Id);
+        await ReconcileExpiredPaymentsAsync(null, false, outlet.Id, cancellationToken);
 
         var payment = await paymentService.GetCurrentAsync(
             cancellationToken);
@@ -106,15 +98,29 @@ public sealed class PaymentController(
         return payment is null ? NoContent() : Ok(payment);
     }
 
+    private async Task<Guid> RequirePaymentOutletAsync(
+        Guid paymentId, Guid? selectedOutletId, CancellationToken cancellationToken)
+    {
+        var outlet = await outletService.ResolveAsync(selectedOutletId, cancellationToken);
+        var payment = await db.Payments.AsNoTracking()
+            .Where(x => x.Id == paymentId)
+            .Select(x => new { OutletId = x.Transaction!.OutletId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (payment is null || payment.OutletId != outlet.Id)
+            throw new KeyNotFoundException("Payment tidak ditemukan di outlet ini.");
+        return outlet.Id;
+    }
+
     private async Task ReconcileExpiredPaymentsAsync(
         Guid? paymentId,
         bool forceProviderCheck,
+        Guid outletId,
         CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
         var query = db.Payments
             .Include(x => x.Transaction)
-            .Where(x =>
+            .Where(x => x.Transaction != null && x.Transaction.OutletId == outletId &&
                 x.Status == PaymentConstants.StatusPending &&
                 !string.IsNullOrEmpty(x.ProviderPaymentRequestId));
 

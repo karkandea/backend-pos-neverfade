@@ -9,6 +9,7 @@ namespace NeverfadePos.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[RequireOutletScope]
 [Route("api/restaurant/kitchen")]
 [RequireCapability(TenantCapabilities.KitchenQueue)]
 public sealed class KitchenQueueController(

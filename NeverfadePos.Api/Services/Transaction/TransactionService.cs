@@ -18,10 +18,12 @@ public sealed class TransactionService(
         string? search,
         DateTime? startDate,
         DateTime? endDate,
+        Guid outletId,
         CancellationToken cancellationToken = default)
     {
         var query = db.Transactions
             .AsNoTracking()
+            .Where(x => x.OutletId == outletId)
             .Include(x => x.Items)
             .Include(x => x.Payment)
             .AsQueryable();
@@ -56,6 +58,7 @@ public sealed class TransactionService(
 
     public async Task<TransactionDto> GetByIdAsync(
         Guid id,
+        Guid outletId,
         CancellationToken cancellationToken = default)
     {
         var transaction = await db.Transactions
@@ -63,7 +66,7 @@ public sealed class TransactionService(
             .Include(x => x.Items)
             .Include(x => x.Payment)
             .FirstOrDefaultAsync(
-                x => x.Id == id,
+                x => x.Id == id && x.OutletId == outletId,
                 cancellationToken);
 
         return transaction is null
@@ -476,6 +479,7 @@ public sealed class TransactionService(
 
         return await GetByIdAsync(
             entity.Id,
+            entity.OutletId ?? throw new InvalidOperationException("Transaksi belum memiliki outlet."),
             cancellationToken);
     }
 

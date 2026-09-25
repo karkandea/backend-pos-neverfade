@@ -457,6 +457,50 @@ public sealed class LaundryWorkOrderTests
             .ReadFromJsonAsync<TransactionDto>())!;
     }
 
+    [Fact]
+    public async Task Laundry_OutletWorkOrders_AreIsolatedBySelectionAndAssignment()
+    {
+        await using var factory = new LaundryApiFactory();
+        await EnableLaundryAsync(factory);
+        var service = await SeedProductAsync(factory, "LDR-S1-OUTLET",
+            ProductTypes.Service, tracksStock: false, quantityPrecision: 2,
+            stock: 0, unit: "kg", price: 10000m);
+        var customer = await GetSeedCustomerAsync(factory);
+        using var owner = await CreateTenantClientAsync(factory, "owner", "owner123");
+        using var cashier = await CreateTenantClientAsync(factory, "kasir", "kasir123");
+        var response = await owner.PostAsJsonAsync("/api/outlets", new
+        {
+            code = "LDR-BRANCH", name = "Laundry Branch", address = "", phone = "", isDefault = false
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var branchId = (await response.Content.ReadFromJsonAsync<NeverfadePos.Api.DTOs.Outlet.OutletDto>())!.Id;
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", branchId.ToString());
+        var create = await owner.PostAsJsonAsync("/api/laundry/work-orders", new
+        {
+            customerId = customer.Id, promisedAt = DateTime.UtcNow.AddHours(5), notes = "",
+            items = new[] { new { productId = service.Id, quantity = 2m } }
+        });
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        var order = (await create.Content.ReadFromJsonAsync<LaundryWorkOrderDto>())!;
+        Assert.Single((await owner.GetFromJsonAsync<List<LaundryWorkOrderDto>>(
+            "/api/laundry/work-orders"))!);
+        owner.DefaultRequestHeaders.Remove("X-Outlet-Id");
+        Assert.Empty((await owner.GetFromJsonAsync<List<LaundryWorkOrderDto>>(
+            "/api/laundry/work-orders"))!);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync(
+            $"/api/laundry/work-orders/{order.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await cashier.GetAsync(
+            $"/api/laundry/work-orders/{order.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await cashier.PostAsJsonAsync(
+            $"/api/laundry/work-orders/{order.Id}/status",
+            new { status = LaundryConstants.StatusInProgress, reason = "" })).StatusCode);
+        cashier.DefaultRequestHeaders.Add("X-Outlet-Id", branchId.ToString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await cashier.GetAsync(
+            "/api/laundry/work-orders")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await cashier.GetAsync(
+            $"/api/laundry/work-orders/{order.Id}")).StatusCode);
+    }
+
     private static async Task<HttpClient> CreateTenantClientAsync(
         LaundryApiFactory factory,
         string username,

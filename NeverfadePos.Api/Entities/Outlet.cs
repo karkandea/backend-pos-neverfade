@@ -21,6 +21,7 @@ public sealed class Outlet : BaseEntity
 
 
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
+    public ICollection<RestaurantTable> RestaurantTables { get; set; } = new List<RestaurantTable>();
 
     public ICollection<WhatsAppSender> WhatsAppSenders { get; set; } = new List<WhatsAppSender>();
 }

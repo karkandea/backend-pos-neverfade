@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NeverfadePos.Api.Data;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NeverfadePos.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260925131559_AddSprint1RestaurantOutletScope")]
+    partial class AddSprint1RestaurantOutletScope
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -397,9 +400,6 @@ namespace NeverfadePos.Api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<Guid>("OutletId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -431,8 +431,6 @@ namespace NeverfadePos.Api.Migrations
 
                     b.HasIndex("CustomerId");
 
-                    b.HasIndex("OutletId");
-
                     b.HasIndex("TransactionId")
                         .IsUnique()
                         .HasFilter("\"TransactionId\" IS NOT NULL");
@@ -441,8 +439,6 @@ namespace NeverfadePos.Api.Migrations
                         .IsUnique();
 
                     b.HasIndex("TenantId", "Status", "CreatedAt");
-
-                    b.HasIndex("TenantId", "OutletId", "Status", "CreatedAt");
 
                     b.ToTable("laundry_work_orders", null, t =>
                         {
@@ -2555,12 +2551,6 @@ namespace NeverfadePos.Api.Migrations
                     b.HasOne("NeverfadePos.Api.Entities.Customer", "Customer")
                         .WithMany()
                         .HasForeignKey("CustomerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("NeverfadePos.Api.Entities.Outlet", null)
-                        .WithMany()
-                        .HasForeignKey("OutletId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 

@@ -11,6 +11,7 @@ using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Payments;
 using NeverfadePos.Api.Services.Retail;
+using NeverfadePos.Api.Services.Outlet;
 
 namespace NeverfadePos.Api.Services.Payment;
 
@@ -20,6 +21,7 @@ internal sealed class PaymentService(
     ITrustedTenantExecutionScope trustedTenantScope,
     IPaymentModeGate paymentModeGate,
     IRetailSaleResolver retailSaleResolver,
+    IOutletExecutionContext outletContext,
     IXenditPaymentProvider xendit,
     IOptions<XenditOptions> xenditOptions)
     : IPaymentService
@@ -45,10 +47,12 @@ internal sealed class PaymentService(
         paymentModeGate.EnsureQrisAllowed(
             currentUser.TenantId.Value);
 
+        var outletId = outletContext.OutletId
+            ?? throw new InvalidOperationException("QRIS requires a resolved outlet.");
         var existingPayment = await db.Payments
-            .Where(x =>
-                x.Status == PaymentConstants.StatusCreating ||
-                x.Status == PaymentConstants.StatusPending)
+            .Where(x => x.Transaction != null && x.Transaction.OutletId == outletId &&
+                (x.Status == PaymentConstants.StatusCreating ||
+                 x.Status == PaymentConstants.StatusPending))
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -243,10 +247,12 @@ internal sealed class PaymentService(
     public async Task<PaymentStatusDto?> GetCurrentAsync(
         CancellationToken cancellationToken = default)
     {
+        var outletId = outletContext.OutletId
+            ?? throw new InvalidOperationException("Current payment requires a resolved outlet.");
         var payment = await db.Payments
-            .Where(x =>
-                x.Status == PaymentConstants.StatusCreating ||
-                x.Status == PaymentConstants.StatusPending)
+            .Where(x => x.Transaction != null && x.Transaction.OutletId == outletId &&
+                (x.Status == PaymentConstants.StatusCreating ||
+                 x.Status == PaymentConstants.StatusPending))
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 

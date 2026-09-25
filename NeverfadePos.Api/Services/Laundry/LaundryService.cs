@@ -5,12 +5,14 @@ using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Laundry;
 using NeverfadePos.Api.Entities;
+using NeverfadePos.Api.Services.Outlet;
 
 namespace NeverfadePos.Api.Services.Laundry;
 
 public sealed class LaundryService(
     AppDbContext db,
-    CurrentUser currentUser)
+    CurrentUser currentUser,
+    IOutletExecutionContext outletContext)
     : ILaundryService
 {
     public async Task<IReadOnlyList<LaundryWorkOrderDto>> GetAllAsync(
@@ -33,6 +35,7 @@ public sealed class LaundryService(
 
         var query = db.LaundryWorkOrders
             .AsNoTracking()
+            .Where(x => x.OutletId == RequireOutletId())
             .Include(x => x.Customer)
             .Include(x => x.Items)
             .Include(x => x.StatusHistory)
@@ -137,6 +140,7 @@ public sealed class LaundryService(
         var order = new LaundryWorkOrder
         {
             TenantId = tenantId,
+            OutletId = RequireOutletId(),
             CustomerId = customer.Id,
             CreatedByUserId = userId,
             OrderNumber = GenerateOrderNumber(DateTime.UtcNow),
@@ -356,7 +360,7 @@ public sealed class LaundryService(
             .AsNoTracking()
             .Include(x => x.Items)
             .SingleOrDefaultAsync(
-                x => x.Id == request.TransactionId,
+                x => x.Id == request.TransactionId && x.OutletId == RequireOutletId(),
                 cancellationToken)
             ?? throw new KeyNotFoundException(
                 "Transaksi tidak ditemukan.");
@@ -489,7 +493,7 @@ public sealed class LaundryService(
 
         var order = await query
             .SingleOrDefaultAsync(
-                x => x.Id == id,
+                x => x.Id == id && x.OutletId == RequireOutletId(),
                 cancellationToken);
 
         return order ??
@@ -526,6 +530,9 @@ public sealed class LaundryService(
                 $"Status {order.Status} tidak dapat diubah menjadi {next}.");
         }
     }
+
+    private Guid RequireOutletId() => outletContext.OutletId
+        ?? throw new InvalidOperationException("Laundry requires an active outlet scope.");
 
     private (Guid TenantId, Guid UserId) RequireUser()
     {

@@ -3,6 +3,7 @@ using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Services.Outlet;
+using NeverfadePos.Api.DTOs.Outlet;
 using NeverfadePos.Api.Services.WhatsApp;
 using Xunit;
 
@@ -38,7 +39,7 @@ public sealed class WhatsAppReceiptAvailabilityTests
             SessionName = "test-sender"
         };
         var client = new StubWahaClient(status);
-        var service = new WhatsAppReceiptService(db, null!,
+        var service = new WhatsAppReceiptService(db, new StubOutletService(outletId),
             new StubResolver(sender), client);
         var result = await service.GetReceiptAvailabilityAsync(transactionId);
         Assert.Equal(configured, result.Configured);
@@ -71,6 +72,19 @@ public sealed class WhatsAppReceiptAvailabilityTests
             new StubResolver(null), new StubWahaClient(null));
         await Assert.ThrowsAsync<KeyNotFoundException>(() =>
             service.GetReceiptAvailabilityAsync(transactionId));
+    }
+
+    private sealed class StubOutletService(Guid allowedId) : IOutletService
+    {
+        public Task<List<OutletDto>> GetAllAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<OutletDto> CreateAsync(CreateOutletDto request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<OutletDto> UpdateAsync(Guid id, UpdateOutletDto request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<Outlet> ResolveAsync(Guid? outletId, CancellationToken cancellationToken = default) =>
+            outletId == allowedId ? Task.FromResult(new Outlet { Id = allowedId, Active = true }) :
+            throw new UnauthorizedAccessException("Outlet not assigned.");
     }
 
     private sealed class TestTenant(Guid tenantId) : ITenantExecutionContext

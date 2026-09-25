@@ -12,6 +12,7 @@ using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Auth;
 using NeverfadePos.Api.DTOs.Tenant;
 using NeverfadePos.Api.DTOs.Outlet;
+using NeverfadePos.Api.Entities;
 using Xunit;
 
 namespace NeverfadePos.Api.Tests;
@@ -206,6 +207,51 @@ public sealed class TenantContextApiTests
         Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
         Assert.Single((await (await cashier.GetAsync("/api/outlets")).Content
             .ReadFromJsonAsync<List<OutletDto>>())!);
+        var branchTransactionId = Guid.NewGuid();
+        var branchPaymentId = Guid.NewGuid();
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.Where(x => x.Slug == "warung-lumpia-beef")
+                .Select(x => x.Id).SingleAsync();
+            using (scope.ServiceProvider.GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "TEST_OUTLET_READ"))
+            {
+                db.Transactions.Add(new Transaction
+                {
+                    Id = branchTransactionId, TenantId = tenantId, OutletId = branch.Id,
+                    NoTrx = "TRX-SECOND-OUTLET", Kasir = "QA", KasirId = cashierLogin.User.Id,
+                    MetodePembayaran = "QRIS", Status = TransactionStatuses.PendingPayment
+                });
+                db.Payments.Add(new Payment
+                {
+                    Id = branchPaymentId, TenantId = tenantId, TransactionId = branchTransactionId,
+                    ProviderReferenceId = "qa-second-outlet", Amount = 1000,
+                    Status = PaymentConstants.StatusPending
+                });
+                await db.SaveChangesAsync();
+            }
+        }
+        Assert.DoesNotContain("TRX-SECOND-OUTLET", await
+            (await cashier.GetAsync("/api/transactions")).Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await cashier.GetAsync($"/api/transactions/{branchTransactionId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cashier.GetAsync($"/api/transactions/{branchTransactionId}/receipt/whatsapp/status")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await cashier.GetAsync($"/api/payments/{branchPaymentId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await cashier.GetAsync("/api/payments/current")).StatusCode);
+        cashier.DefaultRequestHeaders.Add("X-Outlet-Id", branch.Id.ToString());
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cashier.GetAsync("/api/transactions")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cashier.GetAsync($"/api/payments/{branchPaymentId}")).StatusCode);
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", branch.Id.ToString());
+        Assert.Equal(HttpStatusCode.OK,
+            (await owner.GetAsync($"/api/transactions/{branchTransactionId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK,
+            (await owner.GetAsync($"/api/payments/{branchPaymentId}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await cashier.PostAsJsonAsync("/api/transactions", new
             {

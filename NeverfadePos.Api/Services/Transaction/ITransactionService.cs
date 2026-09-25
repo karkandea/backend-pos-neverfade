@@ -8,10 +8,12 @@ public interface ITransactionService
         string? search,
         DateTime? startDate,
         DateTime? endDate,
+        Guid outletId,
         CancellationToken cancellationToken = default);
 
     Task<TransactionDto> GetByIdAsync(
         Guid id,
+        Guid outletId,
         CancellationToken cancellationToken = default);
 
     Task<TransactionDto> CreateAsync(

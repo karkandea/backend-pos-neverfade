@@ -9,6 +9,7 @@ namespace NeverfadePos.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[RequireOutletScope]
 [Route("api/restaurant/orders")]
 [RequireCapability(TenantCapabilities.TableOrders)]
 public sealed class RestaurantOrdersController(

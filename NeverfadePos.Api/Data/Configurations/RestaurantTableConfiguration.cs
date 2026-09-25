@@ -16,11 +16,16 @@ public sealed class RestaurantTableConfiguration
                 "\"Capacity\" > 0 AND \"Capacity\" <= 100"));
 
         builder.HasKey(x => x.Id);
-        builder.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
-        builder.HasIndex(x => new { x.TenantId, x.Active, x.SortOrder });
+        builder.HasIndex(x => new { x.TenantId, x.OutletId, x.Code }).IsUnique();
+        builder.HasIndex(x => new { x.TenantId, x.OutletId, x.Active, x.SortOrder });
 
         builder.Property(x => x.Code).HasMaxLength(30).IsRequired();
         builder.Property(x => x.Name).HasMaxLength(100).IsRequired();
+
+        builder.HasOne(x => x.Outlet)
+            .WithMany(x => x.RestaurantTables)
+            .HasForeignKey(x => x.OutletId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(x => x.Tenant)
             .WithMany(x => x.RestaurantTables)

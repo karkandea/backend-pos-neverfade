@@ -20,23 +20,23 @@ public sealed class TransactionController(
         [FromQuery] string? search,
         [FromQuery] DateTime? startDate,
         [FromQuery] DateTime? endDate,
+        [FromHeader(Name = "X-Outlet-Id")] Guid? selectedOutletId,
         CancellationToken cancellationToken)
     {
+        var outlet = await outletService.ResolveAsync(selectedOutletId, cancellationToken);
         return Ok(await transactionService.GetAllAsync(
-            search,
-            startDate,
-            endDate,
-            cancellationToken));
+            search, startDate, endDate, outlet.Id, cancellationToken));
     }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<TransactionDto>> GetById(
         Guid id,
+        [FromHeader(Name = "X-Outlet-Id")] Guid? selectedOutletId,
         CancellationToken cancellationToken)
     {
+        var outlet = await outletService.ResolveAsync(selectedOutletId, cancellationToken);
         return Ok(await transactionService.GetByIdAsync(
-            id,
-            cancellationToken));
+            id, outlet.Id, cancellationToken));
     }
 
     [HttpPost]

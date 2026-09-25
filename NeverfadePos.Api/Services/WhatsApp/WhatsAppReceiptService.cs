@@ -72,8 +72,10 @@ public sealed class WhatsAppReceiptService(
 
         // Legacy transactions may have no outlet snapshot; sender resolver
         // then resolves the tenant's default active outlet, like SendReceiptAsync.
+        // Enforce object-level outlet assignment before disclosing sender readiness.
+        var outlet = await outletService.ResolveAsync(transaction.OutletId, cancellationToken);
         var sender = await senderResolver.FindDefaultAsync(
-            transaction.OutletId, cancellationToken);
+            outlet.Id, cancellationToken);
         if (sender is null)
         {
             return new WhatsAppReceiptAvailability(
@@ -234,8 +236,10 @@ public sealed class WhatsAppReceiptService(
                 "Struk WhatsApp hanya dapat dikirim untuk transaksi yang sudah berhasil.");
         }
 
+        // Sending a receipt must not bypass a revoked outlet assignment.
+        var outlet = await outletService.ResolveAsync(transaction.OutletId, cancellationToken);
         var sender = await senderResolver.FindDefaultAsync(
-            transaction.OutletId,
+            outlet.Id,
             cancellationToken)
             ?? throw new InvalidOperationException(
                 "WhatsApp outlet belum dikonfigurasi.");

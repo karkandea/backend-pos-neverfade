@@ -16,17 +16,26 @@ Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d
 
 ## Verification executed
 
-- Backend full suite: 157 passed, 0 failed, 0 skipped (InMemory/WebApplicationFactory).
-- FE TypeScript/Vite build and ESLint: passed (existing bundle-size advisory remains).
-- Local mocked Playwright Chromium restaurant/fashion/retail-return selection: 7 passed, 2 skipped; new Sprint 1 role/outlet and empty-table scenarios: 3 passed. Other browser/device and live API E2E not certified.
-- EF migrations, including `AddSprint1UserOutletAssignments`, applied successfully to a fresh **disposable local PostgreSQL 16** container. Existing production DB was not accessed.
+- Backend full suite at checkpoint 2: **159 passed, 0 failed, 0 skipped** (InMemory/WebApplicationFactory); fresh build **0 warnings/0 errors**.
+- FE TypeScript/Vite build and ESLint: passed (existing bundle-size advisory remains); request interceptor includes server-validated `X-Outlet-Id` for transaction, payment, restaurant and laundry routes.
+- Local mocked Playwright Chromium restaurant/fashion/retail-return selection: 7 passed, 2 skipped; Sprint 1 role/outlet and empty-table scenarios: **9 passed across desktop/tablet/mobile**. Restaurant/laundry existing mocked desktop suite: **7 passed, 1 skipped**. Other browser/device and live API E2E not certified.
+- EF migrations, including `AddSprint1UserOutletAssignments`, `AddSprint1RestaurantOutletScope` and `AddSprint1LaundryOutletScope`, applied to **disposable local PostgreSQL 16**. Nonempty restaurant table and laundry order records backfilled to the correct tenant default outlet; laundry migration rolled back and reapplied with its legacy order preserved. EF pending model changes: none. Existing production DB was not accessed.
 - Auth/navigation mixed live suite: 4 passed and 3 not certified in this isolated FE-only run (two need `QA_OWNER_PASSWORD`; advertised admin login needs a live test backend). Keep these as OPEN, not PASS.
+
+## Checkpoint 2 — outlet object authorization (2026-09-25)
+
+- `GET /api/transactions`, transaction detail and receipt WhatsApp readiness/send now reject inaccessible outlet objects, while allowing owner selection. Cash checkout keeps its existing outlet snapshot.
+- QRIS create/current/status/cancel and expired-payment reconciliation are restricted to the resolved outlet. A pending QRIS in another outlet does not block local checkout; webhook remains trusted cross-outlet processing and is not switched to user outlet context.
+- Restaurant table codes are unique within an outlet, orders and kitchen queue/status are limited by the table outlet, and paid transaction association cannot cross outlets.
+- Laundry orders have a persisted outlet ID and scoped read/status/payment binding; legacy orders are backfilled transactionally by tenant.
+- Added API negative tests: unassigned cashier gets 403 for explicit branch; default branch sees neither restaurant order/kitchen items nor laundry records; cross-outlet object detail/mutation returns 404; owner with selected branch can access its data. `RequireOutletScope` resolves selection server-side.
+- Checks are **isolated QA**, not a full release verdict; there has been no production deployment, push or merge at this checkpoint.
 
 ## Mandatory exit gates still OPEN
 
 - Complete role taxonomy/restricted operators, delegated admin capability and object-level access on **all** relevant tenant/outlet resources, including reports, payment, restaurant and laundry records.
 - Tenant creation idempotency; explicit isolated demo provisioning; timezone, production/demo mode and full onboarding/seed contract.
-- Restaurant tables and other operational records currently need verified outlet isolation. Current owner CTA uses existing table API; do not present this as proven per-outlet support.
+- Outlet isolation for restaurant tables/orders/kitchen and laundry work orders is now covered by scoped API tests and additive, backfilled migrations. Wider multi-outlet object checks (other modules, reports, shared-POS flows and real PostgreSQL authorization fixtures) still require audit and evidence.
 - Real multi-tenant/multi-outlet PostgreSQL integration, migration backfill/rollback test, FE/BE full browser matrix and role/403 matrix with evidence.
 - Reproduce/regress R1 financial 500, R2 missing tables, R3 kitchen after submit, R4 stuck pending; distinguish sprint-scoped fixes from later planned fixes.
 - Full QA/UAT traceability, security/observability review, same-SHA release record, and formal sign-off. No deploy/merge until these gates pass.

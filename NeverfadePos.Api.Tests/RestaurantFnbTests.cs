@@ -234,6 +234,56 @@ public sealed class RestaurantFnbTests
         Assert.Equal("Customer pindah lokasi.", cancelled.CancellationReason);
     }
 
+    [Fact]
+    public async Task Restaurant_OutletTablesOrdersAndKitchen_AreIsolatedBySelectionAndAssignment()
+    {
+        await using var factory = new RestaurantApiFactory();
+        await EnableFoodBeverageAsync(factory);
+        var product = await SeedProductAsync(factory);
+        using var owner = await CreateTenantClientAsync(factory, "owner", "owner123");
+        using var cashier = await CreateTenantClientAsync(factory, "kasir", "kasir123");
+
+        var mainTable = await CreateTableAsync(owner, "S1-A1", "Main A1");
+        var response = await owner.PostAsJsonAsync("/api/outlets", new
+        {
+            code = "S1-BRANCH", name = "Branch", address = "", phone = "", isDefault = false
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var branchId = (await response.Content.ReadFromJsonAsync<NeverfadePos.Api.DTOs.Outlet.OutletDto>())!.Id;
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", branchId.ToString());
+        var branchTable = await CreateTableAsync(owner, "S1-A1", "Branch A1");
+        Assert.NotEqual(mainTable.Id, branchTable.Id);
+        var branchOrder = await OpenOrderAsync(owner, branchTable.Id);
+        var add = await owner.PostAsJsonAsync($"/api/restaurant/orders/{branchOrder.Id}/items",
+            new { productId = product.Id, qty = 1, note = "" });
+        Assert.Equal(HttpStatusCode.OK, add.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync(
+            $"/api/restaurant/orders/{branchOrder.Id}/send-to-kitchen", null)).StatusCode);
+        var branchQueue = await owner.GetFromJsonAsync<List<KitchenQueueOrderDto>>("/api/restaurant/kitchen");
+        Assert.Single(branchQueue!);
+        Assert.Equal(branchOrder.Id, branchQueue![0].OrderId);
+        var branchTables = await owner.GetFromJsonAsync<List<RestaurantTableDto>>("/api/restaurant/tables");
+        Assert.Single(branchTables!);
+        Assert.Equal(branchTable.Id, branchTables![0].Id);
+
+        owner.DefaultRequestHeaders.Remove("X-Outlet-Id");
+        var mainTables = await owner.GetFromJsonAsync<List<RestaurantTableDto>>("/api/restaurant/tables");
+        Assert.Single(mainTables!);
+        Assert.Equal(mainTable.Id, mainTables![0].Id);
+        Assert.Empty((await owner.GetFromJsonAsync<List<KitchenQueueOrderDto>>("/api/restaurant/kitchen"))!);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync(
+            $"/api/restaurant/orders/{branchOrder.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await cashier.PostAsJsonAsync(
+            "/api/restaurant/orders", new { tableId = branchTable.Id })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await cashier.GetAsync(
+            $"/api/restaurant/orders/{branchOrder.Id}")).StatusCode);
+        cashier.DefaultRequestHeaders.Add("X-Outlet-Id", branchId.ToString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await cashier.GetAsync(
+            "/api/restaurant/tables")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await cashier.GetAsync(
+            "/api/restaurant/kitchen")).StatusCode);
+    }
+
     private static async Task<RestaurantTableDto> CreateTableAsync(
         HttpClient owner,
         string code,
@@ -364,9 +414,12 @@ public sealed class RestaurantFnbTests
             .Begin(tenantId, "seed-fnb-paid-transaction");
 
         var subtotal = product.HargaJual * qty;
+        var outletId = await db.Outlets.Where(x => x.IsDefault)
+            .Select(x => x.Id).SingleAsync();
         var transaction = new Transaction
         {
             TenantId = tenantId,
+            OutletId = outletId,
             NoTrx = $"TRX-FNB-PAID-{Guid.NewGuid():N}",
             Kasir = "Kasir QA",
             KasirId = kasirId,
@@ -418,9 +471,12 @@ public sealed class RestaurantFnbTests
             .Begin(tenantId, "seed-fnb-pending-transaction");
 
         var subtotal = product.HargaJual * qty;
+        var outletId = await db.Outlets.Where(x => x.IsDefault)
+            .Select(x => x.Id).SingleAsync();
         var transaction = new Transaction
         {
             TenantId = tenantId,
+            OutletId = outletId,
             NoTrx = $"TRX-FNB-PENDING-{Guid.NewGuid():N}",
             Kasir = "Kasir QA",
             KasirId = kasirId,
