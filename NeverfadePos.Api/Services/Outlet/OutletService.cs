@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
+using NeverfadePos.Api.Common;
 using NeverfadePos.Api.DTOs.Outlet;
 
 namespace NeverfadePos.Api.Services.Outlet;
@@ -26,16 +27,20 @@ public interface IOutletService
 
 public sealed class OutletService(
     AppDbContext db,
-    ITenantExecutionContext tenantContext)
+    ITenantExecutionContext tenantContext,
+    CurrentUser currentUser)
     : IOutletService
 {
     public async Task<List<OutletDto>> GetAllAsync(
         CancellationToken cancellationToken = default)
     {
-        await EnsureDefaultOutletAsync(cancellationToken);
+        if (currentUser.Role == "owner")
+            await EnsureDefaultOutletAsync(cancellationToken);
 
+        var assignedIds = await GetAssignedOutletIdsAsync(cancellationToken);
         return await db.Outlets
             .AsNoTracking()
+            .Where(x => currentUser.Role == "owner" || assignedIds.Contains(x.Id))
             .OrderByDescending(x => x.IsDefault)
             .ThenBy(x => x.Name)
             .Select(x => new OutletDto
@@ -68,6 +73,9 @@ public sealed class OutletService(
         }
 
         var firstOutlet = !await db.Outlets.AnyAsync(cancellationToken);
+        if (currentUser.Role == "admin" && request.IsDefault && !firstOutlet)
+            throw new TenantApiException(403, "OWNER_REQUIRED_TO_CHANGE_DEFAULT_OUTLET",
+                "Hanya owner dapat mengubah outlet default.");
         var shouldBeDefault = request.IsDefault || firstOutlet;
 
         if (shouldBeDefault)
@@ -87,6 +95,11 @@ public sealed class OutletService(
         };
 
         db.Outlets.Add(entity);
+        if (currentUser.Role == "admin" && currentUser.UserId.HasValue)
+            db.UserOutletAssignments.Add(new NeverfadePos.Api.Entities.UserOutletAssignment
+            {
+                TenantId = tenantId, UserId = currentUser.UserId.Value, OutletId = entity.Id
+            });
         await db.SaveChangesAsync(cancellationToken);
 
         return Map(entity);
@@ -103,6 +116,17 @@ public sealed class OutletService(
                 cancellationToken)
             ?? throw new KeyNotFoundException(
                 "Outlet tidak ditemukan.");
+
+        if (currentUser.Role == "admin")
+        {
+            if (!await db.UserOutletAssignments.AnyAsync(
+                x => x.UserId == currentUser.UserId && x.OutletId == id, cancellationToken))
+                throw new TenantApiException(403, "OUTLET_NOT_ASSIGNED",
+                    "Admin hanya dapat mengelola outlet yang ditugaskan.");
+            if (entity.IsDefault != request.IsDefault)
+                throw new TenantApiException(403, "OWNER_REQUIRED_TO_CHANGE_DEFAULT_OUTLET",
+                    "Hanya owner dapat mengubah outlet default.");
+        }
 
         var code = NormalizeCode(request.Code);
         var name = RequireName(request.Name);
@@ -154,17 +178,37 @@ public sealed class OutletService(
         Guid? outletId,
         CancellationToken cancellationToken = default)
     {
-        if (outletId.HasValue && outletId.Value != Guid.Empty)
+        if (currentUser.Role == "owner")
         {
-            return await db.Outlets
-                .SingleOrDefaultAsync(
-                    x => x.Id == outletId.Value && x.Active,
-                    cancellationToken)
-                ?? throw new KeyNotFoundException(
-                    "Outlet aktif tidak ditemukan.");
+            if (outletId.HasValue && outletId.Value != Guid.Empty)
+                return await db.Outlets.SingleOrDefaultAsync(
+                    x => x.Id == outletId.Value && x.Active, cancellationToken)
+                    ?? throw new KeyNotFoundException("Outlet aktif tidak ditemukan.");
+            return await EnsureDefaultOutletAsync(cancellationToken);
         }
 
-        return await EnsureDefaultOutletAsync(cancellationToken);
+        var assignedIds = await GetAssignedOutletIdsAsync(cancellationToken);
+        if (outletId.HasValue && outletId.Value != Guid.Empty &&
+            !assignedIds.Contains(outletId.Value))
+            throw new TenantApiException(StatusCodes.Status403Forbidden,
+                "OUTLET_NOT_ASSIGNED", "Anda tidak memiliki akses ke outlet ini.");
+
+        var accessible = db.Outlets.Where(x => x.Active && assignedIds.Contains(x.Id));
+        var outlet = outletId.HasValue && outletId.Value != Guid.Empty
+            ? await accessible.FirstOrDefaultAsync(x => x.Id == outletId.Value, cancellationToken)
+            : await accessible.OrderByDescending(x => x.IsDefault)
+                .ThenBy(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken);
+        return outlet ?? throw new TenantApiException(StatusCodes.Status403Forbidden,
+            "OUTLET_NOT_ASSIGNED", "Tidak ada outlet aktif yang ditugaskan untuk akun ini.");
+    }
+
+    private async Task<List<Guid>> GetAssignedOutletIdsAsync(CancellationToken cancellationToken)
+    {
+        if (!currentUser.UserId.HasValue || !currentUser.TenantId.HasValue)
+            throw new UnauthorizedAccessException();
+        return await db.UserOutletAssignments.AsNoTracking()
+            .Where(x => x.UserId == currentUser.UserId.Value)
+            .Select(x => x.OutletId).ToListAsync(cancellationToken);
     }
 
     private async Task<NeverfadePos.Api.Entities.Outlet> EnsureDefaultOutletAsync(

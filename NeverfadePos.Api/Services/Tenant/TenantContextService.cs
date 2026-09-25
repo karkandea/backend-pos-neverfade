@@ -37,13 +37,24 @@ internal sealed class TenantContextService(
                 "TENANT_NOT_FOUND",
                 "Tenant tidak ditemukan.");
 
+        var assignedOutlets = currentUser.Role == "owner"
+            ? await db.Outlets.AsNoTracking().Where(x => x.Active)
+                .Select(x => x.Id).ToListAsync(cancellationToken)
+            : await db.UserOutletAssignments.AsNoTracking()
+                .Where(x => x.UserId == currentUser.UserId && x.Outlet!.Active)
+                .Select(x => x.OutletId).ToListAsync(cancellationToken);
+
         return new TenantContextDto
         {
             TenantId = tenant.Id,
             NamaToko = tenant.NamaToko,
             BusinessType = tenant.BusinessType,
             Capabilities = BusinessCapabilityPresets.Resolve(tenant.BusinessType),
-            Role = role
+            Role = role,
+            TenantStatus = tenant.Status,
+            AssignedOutletIds = assignedOutlets,
+            EffectivePermissions = RolePermissionCatalog.Resolve(
+                role, BusinessCapabilityPresets.Resolve(tenant.BusinessType))
         };
     }
 

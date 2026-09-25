@@ -34,6 +34,7 @@ public sealed class ProductController(
             cancellationToken));
     }
 
+    [Authorize(Roles = "owner,admin")]
     [HttpPost]
     public async Task<ActionResult<ProductDto>> Create(
         CreateProductDto request,
@@ -44,6 +45,7 @@ public sealed class ProductController(
             cancellationToken));
     }
 
+    [Authorize(Roles = "owner,admin")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ProductDto>> Update(
         Guid id,
@@ -56,6 +58,7 @@ public sealed class ProductController(
             cancellationToken));
     }
 
+    [Authorize(Roles = "owner,admin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(
         Guid id,

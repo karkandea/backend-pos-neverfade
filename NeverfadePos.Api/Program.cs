@@ -196,22 +196,35 @@ builder.Services
 
         options.Events = new JwtBearerEvents
         {
-            OnTokenValidated = context =>
+            OnTokenValidated = async context =>
             {
                 var principal = context.Principal;
                 var tenantId = principal?.FindFirst("tenant_id")?.Value;
+                var userId = principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ??
+                             principal?.FindFirst("sub")?.Value;
                 var role = principal?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ??
                            principal?.FindFirst("role")?.Value;
 
                 if (principal?.HasClaim("scope", "tenant") != true ||
                     !Guid.TryParse(tenantId, out var parsedTenantId) ||
                     parsedTenantId == Guid.Empty ||
+                    !Guid.TryParse(userId, out var parsedUserId) ||
+                    parsedUserId == Guid.Empty ||
                     role is not ("owner" or "admin" or "kasir"))
                 {
                     context.Fail("Invalid tenant identity.");
+                    return;
                 }
 
-                return Task.CompletedTask;
+                // A signed JWT is not authorization after suspension, deactivation or role changes.
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var userValid = await db.Users.IgnoreQueryFilters().AsNoTracking().AnyAsync(
+                    x => x.Id == parsedUserId && x.TenantId == parsedTenantId &&
+                         x.Active && x.Role == role,
+                    context.HttpContext.RequestAborted);
+                // Existing TenantStatusMiddleware retains its documented 403 on suspension.
+                if (!userValid)
+                    context.Fail("Tenant user session has been revoked.");
             }
         };
     })

@@ -42,6 +42,7 @@ public sealed class CustomerController(
             cancellationToken));
     }
 
+    [Authorize(Roles = "owner,admin")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<CustomerDto>> Update(
         Guid id,
@@ -54,6 +55,7 @@ public sealed class CustomerController(
             cancellationToken));
     }
 
+    [Authorize(Roles = "owner,admin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(
         Guid id,

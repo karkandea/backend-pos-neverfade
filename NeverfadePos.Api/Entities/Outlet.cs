@@ -17,6 +17,8 @@ public sealed class Outlet : BaseEntity
     public bool Active { get; set; } = true;
 
     public Tenant? Tenant { get; set; }
+    public ICollection<UserOutletAssignment> UserAssignments { get; set; } = new List<UserOutletAssignment>();
+
 
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
 

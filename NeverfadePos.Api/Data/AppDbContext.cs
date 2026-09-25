@@ -27,6 +27,8 @@ public class AppDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Settings> Settings => Set<Settings>();
     public DbSet<Outlet> Outlets => Set<Outlet>();
+    public DbSet<UserOutletAssignment> UserOutletAssignments => Set<UserOutletAssignment>();
+
     public DbSet<WhatsAppSender> WhatsAppSenders => Set<WhatsAppSender>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
