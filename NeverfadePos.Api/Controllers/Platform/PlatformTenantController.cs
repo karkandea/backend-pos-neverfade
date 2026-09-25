@@ -32,10 +32,10 @@ public sealed class PlatformTenantController(
     [HttpPost]
     public async Task<ActionResult<PlatformTenantDto>> Create(
         CreatePlatformTenantRequestDto request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         CancellationToken cancellationToken) =>
         Ok(await tenantService.CreateAsync(
-            request,
-            cancellationToken));
+            request, cancellationToken, idempotencyKey));
 
     [HttpPut("{tenantId:guid}/business-profile")]
     public async Task<ActionResult<PlatformTenantDto>> UpdateBusinessProfile(

@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -19,10 +21,18 @@ internal sealed class TenantProvisioningService(
 {
     public async Task<PlatformTenantDto> CreateAsync(
         CreatePlatformTenantRequestDto request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? idempotencyKey = null)
     {
         var actorId = await RequireActiveActorAsync(cancellationToken);
         ValidateRequest(request);
+        var key = ValidateIdempotencyKey(idempotencyKey);
+        var requestHash = key is null ? null : HashProvisioningRequest(request);
+        if (key is not null)
+        {
+            var replay = await FindExistingAsync(actorId, key, requestHash!, cancellationToken);
+            if (replay is not null) return replay;
+        }
 
         var tenantId = Guid.NewGuid();
         var now = DateTime.UtcNow;
@@ -36,6 +46,12 @@ internal sealed class TenantProvisioningService(
             ownerUsername,
             cancellationToken))
         {
+            // Concurrent retry can commit while username lookup is running.
+            if (key is not null)
+            {
+                var replay = await FindExistingAsync(actorId, key, requestHash!, cancellationToken);
+                if (replay is not null) return replay;
+            }
             throw new PlatformApiException(
                 StatusCodes.Status409Conflict,
                 "OWNER_USERNAME_CONFLICT",
@@ -105,6 +121,15 @@ internal sealed class TenantProvisioningService(
         };
 
         db.Tenants.Add(tenant);
+        if (key is not null)
+            db.PlatformProvisioningRequests.Add(new PlatformProvisioningRequest
+            {
+                ActorPlatformUserId = actorId,
+                Key = key,
+                RequestHash = requestHash!,
+                TenantId = tenantId,
+                CreatedAt = now
+            });
         db.PlatformAuditEvents.Add(new PlatformAuditEvent
         {
             ActorPlatformUserId = actorId,
@@ -113,33 +138,79 @@ internal sealed class TenantProvisioningService(
             CreatedAt = now
         });
 
-        using (trustedTenantScope.Begin(
-            tenantId,
-            "TENANT_PROVISIONING"))
+        try
         {
-            db.Users.Add(owner);
-            db.Settings.Add(settings);
-            db.Outlets.Add(defaultOutlet);
-
-            try
+            using (trustedTenantScope.Begin(tenantId, "TENANT_PROVISIONING"))
             {
+                db.Users.Add(owner);
+                db.Settings.Add(settings);
+                db.Outlets.Add(defaultOutlet);
                 await db.SaveChangesAsync(cancellationToken);
                 if (transaction is not null)
-                {
                     await transaction.CommitAsync(cancellationToken);
-                }
             }
-            catch (DbUpdateException exception)
+        }
+        catch (DbUpdateException exception)
+        {
+            if (transaction is not null)
+                await transaction.RollbackAsync(cancellationToken);
+            // A simultaneous same-key POST can only win after the other transaction
+            // commits; read its receipt after rollback, never duplicate the tenant.
+            if (key is not null)
             {
-                if (transaction is not null)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                }
-                throw MapConflict(exception);
+                // A replay may surface any of the tenant/owner/key unique constraints
+                // depending on insert order. Resolve only a committed matching receipt.
+                var replay = await FindExistingAsync(actorId, key, requestHash!, cancellationToken);
+                if (replay is not null) return replay;
             }
+            throw MapConflict(exception);
         }
 
         return Map(tenant, owner);
+    }
+
+    private static string? ValidateIdempotencyKey(string? key)
+    {
+        if (key is null) return null;
+        if (key.Length is < 12 or > 128 || key.Any(c =>
+            !(c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_' or ':' or '.')))
+            throw new PlatformApiException(StatusCodes.Status400BadRequest,
+                "INVALID_IDEMPOTENCY_KEY", "Idempotency-Key tidak valid.");
+        return key;
+    }
+
+    private static string HashProvisioningRequest(CreatePlatformTenantRequestDto request)
+    {
+        // Only the digest is persisted. Include password so a modified retry conflicts.
+        var canonical = JsonSerializer.Serialize(new
+        {
+            NamaToko = request.NamaToko.Trim(),
+            BusinessType = request.BusinessType.Trim(),
+            OwnerNama = request.Owner!.Nama.Trim(),
+            OwnerUsername = request.Owner.Username.Trim(),
+            OwnerPassword = request.Owner.Password
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+    }
+
+    private async Task<PlatformTenantDto?> FindExistingAsync(Guid actorId, string key,
+        string requestHash, CancellationToken cancellationToken)
+    {
+        var receipt = await db.PlatformProvisioningRequests.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ActorPlatformUserId == actorId && x.Key == key,
+                cancellationToken);
+        if (receipt is null) return null;
+        if (!string.Equals(receipt.RequestHash, requestHash, StringComparison.Ordinal))
+            throw new PlatformApiException(StatusCodes.Status409Conflict,
+                "IDEMPOTENCY_KEY_REUSED", "Idempotency-Key sudah digunakan untuk request berbeda.");
+        var tenant = await db.Tenants.AsNoTracking().SingleAsync(
+            x => x.Id == receipt.TenantId, cancellationToken);
+        using (trustedTenantScope.Begin(tenant.Id, "TENANT_PROVISIONING_REPLAY"))
+        {
+            var owner = await db.Users.AsNoTracking().SingleAsync(
+                x => x.Role == "owner", cancellationToken);
+            return Map(tenant, owner);
+        }
     }
 
     private async Task<Guid> RequireActiveActorAsync(

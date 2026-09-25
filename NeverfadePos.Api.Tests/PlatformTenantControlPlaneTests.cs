@@ -143,6 +143,61 @@ public sealed class PlatformTenantControlPlaneTests
     }
 
     [Fact]
+    public async Task Provisioning_SameIdempotencyKey_ReturnsOneTenantAndOneAudit()
+    {
+        await using var factory = new ControlPlaneFactory();
+        var (client, actor) = await CreatePlatformClientAsync(factory);
+        var key = $"s1-provision-{Guid.NewGuid():N}";
+        var payload = CreateRequest("Replay Friendly Shop", "owner.idempotent");
+        var first = await PostWithIdempotencyKeyAsync(client, payload, key);
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var created = (await first.Content.ReadFromJsonAsync<PlatformTenantDto>())!;
+        var before = await GetCountsAsync(factory);
+
+        var retry = await PostWithIdempotencyKeyAsync(client, payload, key);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        var replayed = (await retry.Content.ReadFromJsonAsync<PlatformTenantDto>())!;
+        Assert.Equal(created.Id, replayed.Id);
+        Assert.Equal(created.Owner!.Id, replayed.Owner!.Id);
+        Assert.Equal(before, await GetCountsAsync(factory));
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Single(await db.PlatformProvisioningRequests.Where(
+            x => x.ActorPlatformUserId == actor.Id && x.Key == key).ToListAsync());
+        Assert.Single(await db.PlatformAuditEvents.Where(
+            x => x.TenantId == created.Id && x.EventType == "TENANT_PROVISIONED").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Provisioning_IdempotencyKeyReuseWithDifferentPayload_ConflictsWithoutMutation()
+    {
+        await using var factory = new ControlPlaneFactory();
+        var (client, _) = await CreatePlatformClientAsync(factory);
+        var key = $"s1-provision-{Guid.NewGuid():N}";
+        var first = await PostWithIdempotencyKeyAsync(client,
+            CreateRequest("Original Shop", "owner.idempotent"), key);
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var before = await GetCountsAsync(factory);
+        var different = await PostWithIdempotencyKeyAsync(client,
+            CreateRequest("Changed Shop", "owner.idempotent.changed"), key);
+        Assert.Equal(HttpStatusCode.Conflict, different.StatusCode);
+        Assert.Contains("IDEMPOTENCY_KEY_REUSED", await different.Content.ReadAsStringAsync());
+        Assert.Equal(before, await GetCountsAsync(factory));
+    }
+
+    private static Task<HttpResponseMessage> PostWithIdempotencyKeyAsync(
+        HttpClient client, object payload, string key)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/platform/tenants")
+        {
+            Content = JsonContent.Create(payload)
+        };
+        request.Headers.Add("Idempotency-Key", key);
+        return client.SendAsync(request);
+    }
+
+    [Fact]
     public async Task DuplicateUsername_FailsWithoutPartialProvisioning()
     {
         await using var factory = new ControlPlaneFactory();

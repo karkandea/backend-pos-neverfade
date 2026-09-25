@@ -31,10 +31,18 @@ Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d
 - Added API negative tests: unassigned cashier gets 403 for explicit branch; default branch sees neither restaurant order/kitchen items nor laundry records; cross-outlet object detail/mutation returns 404; owner with selected branch can access its data. `RequireOutletScope` resolves selection server-side.
 - Checks are **isolated QA**, not a full release verdict; there has been no production deployment, push or merge at this checkpoint.
 
+## Checkpoint 3 — local live smoke and provisioning retry (2026-09-25)
+
+- Disposable PostgreSQL container `neverfade-s1-smoke-db`, locally bound to 127.0.0.1:55440; isolated API 127.0.0.1:5292 and FE 127.0.0.1:5293. Both UI/API returned HTTP 200. This is **not a public deployment** and must not be treated as persistent UAT infrastructure.
+- Opt-in real browser-to-local-API login smoke completed: owner/admin/kasir **3 passed** (Desktop Chromium) with isolated development seed credentials. Never supply these demo credentials for production.
+- Platform tenant create has optional `Idempotency-Key` request header. Atomic unique receipt stores only request digest and tenant reference, never owner password; unchanged same-key retry returns existing tenant, changed payload returns 409. FE retains retry key for an unchanged form.
+- Full backend API test suite **161 passed, 0 failed, 0 skipped**; latest idempotency migration applied to isolated PostgreSQL. FE build and lint pass. No production deployment, push or merge.
+- Remaining proof: concurrent same-key requests against real PostgreSQL, complete tenant onboarding/demo segregation, operator roles, full cross-category/outlet authorization and release/UAT gates.
+
 ## Mandatory exit gates still OPEN
 
 - Complete role taxonomy/restricted operators, delegated admin capability and object-level access on **all** relevant tenant/outlet resources, including reports, payment, restaurant and laundry records.
-- Tenant creation idempotency; explicit isolated demo provisioning; timezone, production/demo mode and full onboarding/seed contract.
+- Idempotency is implemented and API-tested, but PostgreSQL concurrency proof, explicit isolated demo provisioning, timezone, production/demo mode and full onboarding/seed contract are still open.
 - Outlet isolation for restaurant tables/orders/kitchen and laundry work orders is now covered by scoped API tests and additive, backfilled migrations. Wider multi-outlet object checks (other modules, reports, shared-POS flows and real PostgreSQL authorization fixtures) still require audit and evidence.
 - Real multi-tenant/multi-outlet PostgreSQL integration, migration backfill/rollback test, FE/BE full browser matrix and role/403 matrix with evidence.
 - Reproduce/regress R1 financial 500, R2 missing tables, R3 kitchen after submit, R4 stuck pending; distinguish sprint-scoped fixes from later planned fixes.

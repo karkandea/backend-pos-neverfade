@@ -13,7 +13,8 @@ public interface IPlatformTenantService
 
     Task<PlatformTenantDto> CreateAsync(
         CreatePlatformTenantRequestDto request,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? idempotencyKey = null);
 
     Task<PlatformTenantDto> UpdateBusinessProfileAsync(
         Guid tenantId,
