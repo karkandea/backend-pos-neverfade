@@ -34,6 +34,13 @@
 - Source gates: **190/190 backend Release tests PASS** (including accepted-create-then-lost-reply, forged amount denial, callback-before-create-response, duplicate/out-of-order webhook, provider-confirmed expiry); **20/20 QRIS browser mock regressions PASS**, FE build/lint PASS. The UI now immediately restores the original server attempt on a `503 PAYMENT_CREATION_UNCERTAIN` response rather than leaving a retryable checkout button. Existing isolated QA service remains payment-disabled; these provider tests are mocked API integration tests, **not Xendit production calls**.
 - A proposed real-PostgreSQL concurrent cash write smoke was blocked by the remote execution safety gate. No success is inferred, and no alternative execution path was used to bypass that gate. Required S2 concurrency and provider financial/UAT gates remain OPEN.
 
+## Checkpoint — isolated QA source promotion (2026-09-26)
+
+- Pushed backend `ce1560b2fc6c8864936401654033972014aabc50` and frontend `572e0bea637ff5baa679bfde0727c3dbc3cdac52` to separate Sprint 2 draft PR branches. Worktrees clean after source commit.
+- Deployed backend binary **only to isolated loopback QA** service `neverfade-s2-qa.service`, release `/opt/neverfade-s2-qa/releases/payment-recovery-ce1560b`, using `neverfade_s2_cash_gate`. Verified `Payments__Mode=Disabled`, prior service config and a dedicated PostgreSQL dump saved for rollback, service active, unauthenticated `/api/auth/me` 401. This **does not exercise provider writes** or certify money movement. S2 frontend recovery UI is still source/test-only and not promoted to a public live-payment checkout.
+- Latest backend Release build **0 warnings / 0 errors**, full suite **190/190 PASS**, including new lost-response and callback-first tests plus mismatch denial. FE build/lint PASS and focused browser-mocked QRIS checkout **20/20 PASS**. Existing provider/stock real-PostgreSQL race and billing-locked remote CI remain unverified.
+- Sprint 1 production remains on `neverfade-pos-backend:664c624-s1` and its `15050a8` frontend; no Sprint 2 migration, feature merge, or production payment change was performed.
+
 ## OPEN / NOT RELEASE-READY
 
 1. Real PostgreSQL concurrency proof for quote-consumption and mandatory idempotency (same-key simultaneous retry, different quotes on last stock, no duplicate paid sale); source implementation exists but database race gate is open.
