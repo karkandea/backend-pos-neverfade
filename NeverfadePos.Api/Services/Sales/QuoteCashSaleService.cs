@@ -21,6 +21,8 @@ public interface IQuoteCashSaleService
     Task<CashCommitResult> CommitAsync(CommitCashSaleRequestDto request,
         string? idempotencyKey, Guid outletId,
         CancellationToken cancellationToken = default);
+    Task<CashCommitResult> FindCommittedAsync(string? idempotencyKey,
+        Guid outletId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -45,11 +47,8 @@ public sealed class QuoteCashSaleService(
             throw new UnauthorizedAccessException();
         if (request.QuoteId == Guid.Empty || request.QuoteVersion == Guid.Empty)
             throw Invalid(400, "QUOTE_ID_REQUIRED", "Quote dan versi wajib dipilih.");
-        if (idempotencyKey is null || idempotencyKey.Length is < 16 or > 128 ||
-            idempotencyKey.Any(x => !char.IsAsciiLetterOrDigit(x) && x is not ('-' or '_')))
-            throw Invalid(400, "IDEMPOTENCY_KEY_REQUIRED",
-                "Gunakan Idempotency-Key unik (16–128 karakter ASCII, huruf/angka/-/_). ");
-        var key = idempotencyKey;
+        ValidateKey(idempotencyKey);
+        var key = idempotencyKey!;
         var hash = Fingerprint(request);
         var tenantId = currentUser.TenantId.Value;
 
@@ -170,6 +169,37 @@ public sealed class QuoteCashSaleService(
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return new CashCommitResult(result, false);
+    }
+
+    /// <summary>
+    /// Read-only recovery of a completed cash write by its original key. A 404
+    /// cannot prove that an in-flight request is safe to replace: the client
+    /// must retain and replay the SAME original key after an unknown response.
+    /// </summary>
+    public async Task<CashCommitResult> FindCommittedAsync(string? idempotencyKey,
+        Guid outletId, CancellationToken cancellationToken = default)
+    {
+        ValidateKey(idempotencyKey);
+        if (!currentUser.TenantId.HasValue || !currentUser.UserId.HasValue)
+            throw new UnauthorizedAccessException();
+        var sale = await db.SaleQuotes.AsNoTracking().SingleOrDefaultAsync(
+            x => x.OutletId == outletId && x.IdempotencyKey == idempotencyKey &&
+                 x.Status == "consumed" && x.ConsumedTransactionId.HasValue,
+            cancellationToken);
+        if (sale?.ConsumedTransactionId is not { } transactionId)
+            throw Invalid(404, "CASH_COMMIT_NOT_CONFIRMED",
+                "Transaksi belum terkonfirmasi. Jangan gunakan kunci pembayaran baru; periksa kembali attempt sebelumnya.");
+        var prior = await transactions.GetByIdAsync(transactionId, outletId,
+            cancellationToken);
+        return new CashCommitResult(prior, true);
+    }
+
+    private static void ValidateKey(string? key)
+    {
+        if (key is null || key.Length is < 16 or > 128 ||
+            key.Any(x => !char.IsAsciiLetterOrDigit(x) && x is not ('-' or '_')))
+            throw Invalid(400, "IDEMPOTENCY_KEY_REQUIRED",
+                "Gunakan Idempotency-Key unik (16–128 karakter ASCII, huruf/angka/-/_). ");
     }
 
     private static string Fingerprint(CommitCashSaleRequestDto request)

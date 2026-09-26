@@ -39,6 +39,13 @@ public sealed partial class AdvancedRetailApiTests
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         var original = (await first.Content.ReadFromJsonAsync<CashSaleResponseDto>())!;
         Assert.False(original.Meta.Replayed);
+        var read = await owner.GetAsync($"/api/v2/sales/cash/idempotency/{key}");
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        Assert.Equal("no-store", read.Headers.CacheControl?.ToString());
+        var recovered = (await read.Content.ReadFromJsonAsync<CashSaleResponseDto>())!;
+        Assert.True(recovered.Meta.Replayed);
+        Assert.Equal(original.Data.Id, recovered.Data.Id);
+        Assert.Equal(original.Data.NoTrx, recovered.Data.NoTrx);
         Assert.Equal(quote.QuoteId, original.Meta.QuoteId);
         Assert.Equal("paid", original.Data.Status);
         Assert.Equal("tunai", original.Data.MetodePembayaran);
@@ -73,6 +80,52 @@ public sealed partial class AdvancedRetailApiTests
         var stored = await db.SaleQuotes.SingleAsync(x => x.Id == quote.QuoteId);
         Assert.Equal("consumed", stored.Status);
         Assert.Equal(original.Data.Id, stored.ConsumedTransactionId);
+    }
+
+    [Fact]
+    public async Task CashCommitRecovery_UnknownOrInvalidKeyCannotClaimSuccess_AndOtherOutletIsIsolated()
+    {
+        await using var factory = new AdvancedRetailFactory();
+        await EnableFashionRetailAsync(factory);
+        using var owner = await AuthClientAsync(factory, "owner");
+        var priced = await CreatePricedVariantAsync(owner, "S2-CASH-STATUS");
+        var outlet = Assert.Single((await owner.GetFromJsonAsync<List<OutletDto>>("/api/outlets"))!);
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", outlet.Id.ToString());
+        var key = Guid.NewGuid().ToString("N");
+        var path = $"/api/v2/sales/cash/idempotency/{key}";
+        var unknown = await owner.GetAsync(path);
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        Assert.Contains("CASH_COMMIT_NOT_CONFIRMED", await unknown.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await owner.GetAsync("/api/v2/sales/cash/idempotency/invalid")).StatusCode);
+        var quoteResponse = await owner.PostAsJsonAsync("/api/v2/sales/quotes", new
+        { outletId = outlet.Id, lines = new[] { new { productId = priced.Product.Id,
+            variantId = priced.Variant.Id, quantity = 1m } } });
+        Assert.Equal(HttpStatusCode.OK, quoteResponse.StatusCode);
+        var quote = (await quoteResponse.Content.ReadFromJsonAsync<SaleQuoteResponseDto>())!.Data;
+        owner.DefaultRequestHeaders.Add("Idempotency-Key", key);
+        var committed = await owner.PostAsJsonAsync("/api/v2/sales/cash", new
+        { quoteId = quote.QuoteId, quoteVersion = quote.QuoteVersion, amountReceived = quote.Total });
+        Assert.Equal(HttpStatusCode.OK, committed.StatusCode);
+        var original = (await committed.Content.ReadFromJsonAsync<CashSaleResponseDto>())!;
+        var branchResponse = await owner.PostAsJsonAsync("/api/outlets", new
+        { code = "S2-CASH-OTHER", name = "Another outlet", address = "QA", phone = "", isDefault = false });
+        Assert.Equal(HttpStatusCode.OK, branchResponse.StatusCode);
+        var branch = (await branchResponse.Content.ReadFromJsonAsync<OutletDto>())!;
+        owner.DefaultRequestHeaders.Remove("X-Outlet-Id");
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", branch.Id.ToString());
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync(path)).StatusCode);
+        owner.DefaultRequestHeaders.Remove("X-Outlet-Id");
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", outlet.Id.ToString());
+        var recovered = (await owner.GetFromJsonAsync<CashSaleResponseDto>(path))!;
+        Assert.Equal(original.Data.Id, recovered.Data.Id);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await db.Tenants.Select(x => x.Id).SingleAsync();
+        using var tenantScope = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(tenantId, "s2-read-only-recovery");
+        Assert.Single(await db.Transactions.ToListAsync());
+        Assert.Single(await db.StockHistories.Where(x => x.Tipe == "transaksi").ToListAsync());
     }
 
     [Fact]

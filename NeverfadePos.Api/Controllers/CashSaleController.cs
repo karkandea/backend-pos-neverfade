@@ -17,6 +17,24 @@ public sealed class CashSaleController(
     IQuoteCashSaleService cash,
     IOutletExecutionContext outletContext) : ControllerBase
 {
+    [HttpGet("idempotency/{idempotencyKey}")]
+    public async Task<ActionResult<CashSaleResponseDto>> FindCommitted(
+        string idempotencyKey, CancellationToken cancellationToken)
+    {
+        var result = await cash.FindCommittedAsync(idempotencyKey,
+            outletContext.OutletId!.Value, cancellationToken);
+        Response.Headers.CacheControl = "no-store";
+        return Ok(new CashSaleResponseDto
+        {
+            Data = result.Transaction,
+            Meta = new CashSaleMetaDto
+            {
+                CorrelationId = HttpContext.TraceIdentifier,
+                Replayed = true
+            }
+        });
+    }
+
     [HttpPost]
     public async Task<ActionResult<CashSaleResponseDto>> Commit(
         CommitCashSaleRequestDto request,
