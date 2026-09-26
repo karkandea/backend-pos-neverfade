@@ -104,10 +104,16 @@ Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d
 - Created **QA-only** `qa.laundry.operator` in the isolated `qa-s1-laundry` tenant, assigned to its default outlet; this fixture reuses that QA tenant's owner test-password hash. No real merchant credential/data is copied. Direct isolated QA API smoke proved operator login/context 200; restricted queue 200 without price/payment/contact fields, and legacy transaction and work-order endpoints 403.
 - Source gates: backend **172/172 PASS**; FE build/lint PASS and mocked Sprint 1 UX **18/18 PASS across desktop/tablet/mobile**. Public HTTPS browser-specific UAT of this exact new binary and complete laundry handoff remains **open**. Operator changes do not imply the full laundry S7–S8 product is ready.
 
+## Checkpoint 13 — persisted-state-derived merchant setup checklist (2026-09-26)
+
+- Added read-only `GET /api/tenant/onboarding`, **owner/admin only**. Computes completion from persisted tenant-owned settings, active default outlet, catalog and category-specific restaurant table/laundry service/salon service; optional cash availability and staff outlet assignment shown separately. No client-supplied completion flags or database migration. Server response includes mode, category, required progress and safe in-app action paths. Never claims release certification or provider payment activation.
+- FE `/mulai` exposes `Setup Usaha`, linked required steps, refresh and explicit demo/live messaging. Operator and cashier route guards remain closed. F&B, laundry and salon requirements use their respective modules; demo fixture data is shown only in demo tenant, never copied into live merchants.
+- Focused API tests **4/4 PASS** for persisted profile and role boundary, plus category-specific step selection. Full Release backend **176/176 PASS**; FE build/lint PASS and Sprint 1 mock UI **24/24 PASS** across desktop/tablet/mobile. This source checkpoint still requires the exact SHA QA deployment and live browser proof before release certification.
+
 ## Mandatory exit gates still OPEN
 
 - Complete role taxonomy (notably stylist/booking and per-station extensions), delegated admin capability and object-level access on **all** remaining relevant tenant/outlet resources. Report summary/chart/top-products now enforce outlet scope in source; other reports, stock and shared-POS flows still require end-to-end audit.
-- Idempotency and explicit demo/live provisioning with timezone and initial five-mode isolated seed are proven; safe repeatable demo reset and complete onboarding/seed contract remain open.
+- Idempotency and explicit demo/live provisioning with timezone and initial five-mode isolated seed are proven. Persisted-state checklist is implemented; safe repeatable demo reset, payment/provider/device onboarding, owner acknowledgement and full seed contract remain open.
 - Outlet isolation for restaurant tables/orders/kitchen and laundry work orders is now covered by scoped API tests and additive, backfilled migrations. Wider multi-outlet object checks (other modules, reports, shared-POS flows and real PostgreSQL authorization fixtures) still require audit and evidence.
 - Real multi-tenant/multi-outlet PostgreSQL integration, migration backfill/rollback test, FE/BE full browser matrix and role/403 matrix with evidence.
 - Reproduce/regress R1 financial 500, R2 missing tables, R3 kitchen after submit, R4 stuck pending; distinguish sprint-scoped fixes from later planned fixes.

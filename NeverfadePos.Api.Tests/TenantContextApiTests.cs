@@ -13,6 +13,7 @@ using NeverfadePos.Api.DTOs.Auth;
 using NeverfadePos.Api.DTOs.Tenant;
 using NeverfadePos.Api.DTOs.Outlet;
 using NeverfadePos.Api.DTOs.Laporan;
+using NeverfadePos.Api.DTOs.Onboarding;
 using NeverfadePos.Api.Entities;
 using Xunit;
 
@@ -334,6 +335,75 @@ public sealed class TenantContextApiTests
                 items = new[] { new { id = Guid.NewGuid(), nama = "Test", hargaJual = 1, qty = 1, subtotal = 1 } },
                 subtotal = 1, total = 1, dibayar = 1
             })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Onboarding_IsOwnerAdminOnly_AndFollowsPersistedProfile()
+    {
+        await using var factory = new TenantContextFactory();
+        using var owner = factory.CreateClient();
+        using var cashier = factory.CreateClient();
+        foreach (var (client, username, password) in new[]
+        {
+            (owner, "owner", "owner123"), (cashier, "kasir", "kasir123")
+        })
+        {
+            var login = await client.PostAsJsonAsync("/api/auth/login", new { username, password });
+            var response = (await login.Content.ReadFromJsonAsync<LoginResponseDto>())!;
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", response.Token);
+        }
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cashier.GetAsync("/api/tenant/onboarding")).StatusCode);
+        var first = (await owner.GetFromJsonAsync<TenantOnboardingDto>("/api/tenant/onboarding"))!;
+        Assert.Equal("live", first.Mode);
+        Assert.Equal(3, first.TotalRequired);
+        Assert.True(Assert.Single(first.Steps, x => x.Id == "cash_payment").Complete);
+        Assert.False(Assert.Single(first.Steps, x => x.Id == "staff_assignment").Required);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.Select(x => x.Id).SingleAsync();
+            using (scope.ServiceProvider.GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "ONBOARDING_TEST"))
+            {
+                var setting = await db.Settings.SingleAsync();
+                setting.Alamat = ""; setting.Telepon = "";
+                var outlet = await db.Outlets.SingleAsync(x => x.IsDefault);
+                outlet.Address = ""; outlet.Phone = "";
+                await db.SaveChangesAsync();
+            }
+        }
+        var incomplete = (await owner.GetFromJsonAsync<TenantOnboardingDto>("/api/tenant/onboarding"))!;
+        Assert.False(incomplete.RequiredStepsComplete);
+        Assert.False(Assert.Single(incomplete.Steps, x => x.Id == "business_profile").Complete);
+        Assert.False(Assert.Single(incomplete.Steps, x => x.Id == "default_outlet").Complete);
+    }
+
+    [Theory]
+    [InlineData("food_beverage", "restaurant_tables")]
+    [InlineData("laundry", "laundry_services")]
+    [InlineData("salon_barbershop", "salon_services")]
+    public async Task Onboarding_AddsRequirementForEachSpecialCategory(string mode, string expectedStep)
+    {
+        await using var factory = new TenantContextFactory();
+        using var client = factory.CreateClient();
+        var login = await client.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123" });
+        var auth = (await login.Content.ReadFromJsonAsync<LoginResponseDto>())!;
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.Token);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var entity = await db.Tenants.SingleAsync();
+            entity.BusinessType = mode;
+            await db.SaveChangesAsync();
+        }
+        var result = (await client.GetFromJsonAsync<TenantOnboardingDto>("/api/tenant/onboarding"))!;
+        Assert.Equal(mode, result.BusinessType);
+        Assert.Equal(4, result.TotalRequired);
+        var special = Assert.Single(result.Steps, x => x.Id == expectedStep);
+        Assert.True(special.Required);
+        Assert.StartsWith("/", special.ActionPath);
     }
 
     private sealed class TenantContextFactory : WebApplicationFactory<Program>

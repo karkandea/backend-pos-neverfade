@@ -142,6 +142,7 @@ builder.Services.AddScoped<IOutletExecutionScope>(services => services.GetRequir
 builder.Services.AddScoped<TenantContextService>();
 builder.Services.AddScoped<ITenantContextService>(services => services.GetRequiredService<TenantContextService>());
 builder.Services.AddScoped<ITenantCapabilityService>(services => services.GetRequiredService<TenantContextService>());
+builder.Services.AddScoped<NeverfadePos.Api.Services.Onboarding.ITenantOnboardingService, NeverfadePos.Api.Services.Onboarding.TenantOnboardingService>();
 
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
