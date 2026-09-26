@@ -9,6 +9,9 @@
 - [ ] Double-click, timeout, refresh: original quote/version/key reused; **one** sale/stock movement. Confirm successful read-only key lookup after lost response.
 - [ ] Open a second session as the **same cashier** while first attempt is prepared: restore same key; no new quote. A different cashier cannot see that pending attempt.
 - [ ] Try a second quote/key while first is prepared: reject. After verified server no-sale (e.g. expired quote), explicit `abandon` blocks a delayed original commit and allows a fresh quote.
+- [ ] Double-click while the initial server pending check is slow: only one quote/prepare/commit, not two independent attempts.
+- [ ] A quote expires *before* prepare is stored: server confirms `abandoned` and blocks both late prepare and late direct commit for the original quote/key. Do not unlock the client after 5xx or unknown status.
+- [ ] While cashier A has a prepared attempt, direct v2 commit with a different quote/key is rejected; another cashier's login cannot read cashier A's key.
 - [ ] Two cashiers / two quotes against last unit: at most one successful sale, nonnegative stock, only one stock history for the unit. Test direct legacy/v2 routes separately, not just UI.
 - [ ] Unavailable DB/HTTP 5xx: **do not** clear the old key, invent a new one, or assert paid without server receipt.
 
