@@ -14,6 +14,7 @@ using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Auth;
 using NeverfadePos.Api.DTOs.Payment;
+using NeverfadePos.Api.DTOs.Outlet;
 using NeverfadePos.Api.DTOs.Product;
 using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
@@ -189,6 +190,69 @@ public sealed class XenditPaymentFoundationTests
             status.ProviderPaymentRequestId);
         Assert.Equal("000201010212TEST-QRIS", status.QrString);
         Assert.NotNull(status.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task PaymentAttention_IsReadOnlyOwnerScopedAndShowsUncertainReference()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var owner = await CreateOwnerClientAsync(factory);
+        var empty = (await owner.GetFromJsonAsync<PaymentAttentionResponseDto>(
+            "/api/payments/attention"))!;
+        Assert.Equal(0, empty.Total);
+        var original = await CreatePaymentAsync(owner);
+        var response = await owner.GetAsync("/api/payments/attention");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        var pending = (await response.Content.ReadFromJsonAsync<PaymentAttentionResponseDto>())!;
+        Assert.Equal(1, pending.Total);
+        var row = Assert.Single(pending.Items);
+        Assert.Equal(original.Id, row.PaymentId);
+        Assert.Equal(original.TransactionId, row.TransactionId);
+        Assert.Equal(original.ProviderReferenceId, row.ProviderReferenceId);
+        Assert.Equal(original.Amount, row.Amount);
+        Assert.Equal("awaiting_provider_confirmation", row.Reason);
+        Assert.Single(factory.Provider.Requests);
+        using var cashier = await CreateTenantClientAsync(factory, "kasir", "kasir123");
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cashier.GetAsync("/api/payments/attention")).StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.Select(x => x.Id).SingleAsync();
+            using var tenantScope = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "s2-owner-payment-triage");
+            var rowToUpdate = await db.Payments.SingleAsync(x => x.Id == original.Id);
+            rowToUpdate.Status = PaymentConstants.StatusCreating;
+            rowToUpdate.ProviderPaymentRequestId = null;
+            await db.SaveChangesAsync();
+        }
+        var unknown = (await owner.GetFromJsonAsync<PaymentAttentionResponseDto>(
+            "/api/payments/attention"))!;
+        Assert.Equal("provider_request_unknown", Assert.Single(unknown.Items).Reason);
+        Assert.Single(factory.Provider.Requests);
+    }
+
+    [Fact]
+    public async Task PaymentAttention_ForeignOutletDoesNotRevealOutstandingPayment()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var owner = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(owner);
+        var another = await owner.PostAsJsonAsync("/api/outlets", new
+        { code = "S2-PAY-OTHER", name = "Second outlet", address = "QA", phone = "", isDefault = false });
+        Assert.Equal(HttpStatusCode.OK, another.StatusCode);
+        var branch = (await another.Content.ReadFromJsonAsync<OutletDto>())!;
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", branch.Id.ToString());
+        var other = (await owner.GetFromJsonAsync<PaymentAttentionResponseDto>(
+            "/api/payments/attention"))!;
+        Assert.Equal(branch.Id, other.OutletId);
+        Assert.Equal(0, other.Total);
+        Assert.Empty(other.Items);
+        Assert.Single(factory.Provider.Requests);
+        var oldPayment = await owner.GetAsync($"/api/payments/{payment.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, oldPayment.StatusCode);
     }
 
     [Fact]

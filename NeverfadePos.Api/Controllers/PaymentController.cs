@@ -84,6 +84,59 @@ public sealed class PaymentController(
         return Ok(await paymentService.CancelAsync(paymentId, cancellationToken));
     }
 
+    /// <summary>
+    /// Owner/admin read-only queue for unresolved provider attempts in one
+    /// authorized outlet. The queue never cancels or retries an external charge.
+    /// </summary>
+    [HttpGet("attention")]
+    [Authorize(Roles = "owner,admin")]
+    public async Task<ActionResult<PaymentAttentionResponseDto>> GetAttention(
+        [FromHeader(Name = "X-Outlet-Id")] Guid? selectedOutletId,
+        CancellationToken cancellationToken)
+    {
+        var outlet = await outletService.ResolveAsync(selectedOutletId, cancellationToken);
+        var unresolved = db.Payments.AsNoTracking()
+            .Where(x => x.Transaction != null && x.Transaction.OutletId == outlet.Id &&
+                (x.Status == PaymentConstants.StatusCreating ||
+                 x.Status == PaymentConstants.StatusPending));
+        var total = await unresolved.CountAsync(cancellationToken);
+        var records = await unresolved.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id)
+            .Take(101)
+            .Select(x => new
+            {
+                PaymentId = x.Id, x.TransactionId, x.ProviderReferenceId,
+                x.ProviderPaymentRequestId, x.Status, x.Amount, x.Currency,
+                x.CreatedAt, x.ExpiresAt
+            })
+            .ToListAsync(cancellationToken);
+        var now = DateTime.UtcNow;
+        Response.Headers.CacheControl = "no-store";
+        return Ok(new PaymentAttentionResponseDto
+        {
+            OutletId = outlet.Id,
+            Total = total,
+            HasMore = total > 100,
+            Items = records.Take(100).Select(x => new PaymentAttentionItemDto
+            {
+                PaymentId = x.PaymentId,
+                TransactionId = x.TransactionId,
+                ProviderReferenceId = x.ProviderReferenceId,
+                ProviderPaymentRequestId = x.ProviderPaymentRequestId,
+                Status = x.Status,
+                Reason = x.Status == PaymentConstants.StatusCreating &&
+                    string.IsNullOrWhiteSpace(x.ProviderPaymentRequestId)
+                        ? "provider_request_unknown"
+                        : x.ExpiresAt is { } expiry && expiry <= now
+                            ? "expiry_requires_provider_verification"
+                            : "awaiting_provider_confirmation",
+                Amount = x.Amount,
+                Currency = x.Currency,
+                CreatedAt = x.CreatedAt,
+                ExpiresAt = x.ExpiresAt
+            }).ToList()
+        });
+    }
+
     [HttpGet("current")]
     public async Task<ActionResult<PaymentStatusDto>> GetCurrent(
         [FromHeader(Name = "X-Outlet-Id")] Guid? selectedOutletId,
