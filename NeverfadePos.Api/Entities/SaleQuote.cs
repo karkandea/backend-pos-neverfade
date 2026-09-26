@@ -14,5 +14,9 @@ public sealed class SaleQuote : BaseEntity
     public string Status { get; set; } = "quoted";
     public string? IdempotencyKey { get; set; }
     public string? IdempotencyRequestHash { get; set; }
+    // Persist the original cash attempt BEFORE dispatch so a second device
+    // can recover the exact quote/version/key/amount even if HTTP fails.
+    public DateTime? PreparedAt { get; set; }
+    public decimal? PreparedAmountReceived { get; set; }
     public Guid? ConsumedTransactionId { get; set; }
 }

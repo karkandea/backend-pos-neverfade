@@ -23,6 +23,12 @@ public interface IQuoteCashSaleService
         CancellationToken cancellationToken = default);
     Task<CashCommitResult> FindCommittedAsync(string? idempotencyKey,
         Guid outletId, CancellationToken cancellationToken = default);
+    Task<PreparedCashSaleDto> PrepareAsync(CommitCashSaleRequestDto request,
+        string? idempotencyKey, Guid outletId, CancellationToken cancellationToken = default);
+    Task<PreparedCashSaleDto?> GetCurrentPreparedAsync(Guid outletId,
+        CancellationToken cancellationToken = default);
+    Task<PreparedCashSaleDto> AbandonAsync(CommitCashSaleRequestDto request,
+        string? idempotencyKey, Guid outletId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -65,15 +71,21 @@ public sealed class QuoteCashSaleService(
             if (existing.Id != request.QuoteId ||
                 existing.QuoteVersion != request.QuoteVersion ||
                 existing.IdempotencyRequestHash != hash ||
-                existing.Status != "consumed" || !existing.ConsumedTransactionId.HasValue)
+                existing.PreparedAmountReceived is { } existingAmount && existingAmount != request.AmountReceived)
                 throw Invalid(409, "IDEMPOTENCY_KEY_REUSED",
                     "Kunci transaksi sudah digunakan untuk permintaan yang berbeda.");
-            var prior = await transactions.GetByIdAsync(
-                existing.ConsumedTransactionId.Value, outletId, cancellationToken);
-            return new CashCommitResult(prior, true);
+            if (existing.Status == "consumed" && existing.ConsumedTransactionId is { } transactionId)
+            {
+                var prior = await transactions.GetByIdAsync(transactionId, outletId, cancellationToken);
+                return new CashCommitResult(prior, true);
+            }
+            if (existing.Status != "quoted" || existing.PreparedAt is null ||
+                existing.CreatedByUserId != currentUser.UserId.Value)
+                throw Invalid(409, "IDEMPOTENCY_KEY_REUSED",
+                    "Attempt lain sudah menggunakan kunci transaksi ini.");
         }
 
-        var quote = await db.SaleQuotes.FirstOrDefaultAsync(
+        var quote = existing ?? await db.SaleQuotes.FirstOrDefaultAsync(
             x => x.Id == request.QuoteId && x.OutletId == outletId,
             cancellationToken)
             ?? throw Invalid(404, "QUOTE_NOT_FOUND", "Quote tidak ditemukan di outlet ini.");
@@ -81,6 +93,19 @@ public sealed class QuoteCashSaleService(
             throw Invalid(409, "QUOTE_VERSION_MISMATCH", "Versi quote tidak sesuai.");
         if (quote.Status != "quoted")
             throw Invalid(409, "QUOTE_ALREADY_CONSUMED", "Quote sudah dipakai untuk transaksi lain.");
+        // A different v2 quote/key cannot bypass a still-open prepared attempt
+        // through direct POST from an old browser or another tab.
+        if (quote.IdempotencyKey is null && await db.SaleQuotes.AsNoTracking().AnyAsync(x =>
+            x.OutletId == outletId && x.CreatedByUserId == currentUser.UserId.Value &&
+            x.Id != quote.Id && x.Status == "quoted" &&
+            x.PreparedAt != null && x.IdempotencyKey != null, cancellationToken))
+            throw Invalid(409, "CASH_ATTEMPT_ALREADY_PREPARED",
+                "Pulihkan attempt tunai yang masih terbuka sebelum transaksi baru.");
+        if (quote.IdempotencyKey is not null &&
+            (quote.IdempotencyKey != key || quote.IdempotencyRequestHash != hash ||
+             quote.PreparedAmountReceived != request.AmountReceived ||
+             quote.CreatedByUserId != currentUser.UserId.Value))
+            throw Invalid(409, "QUOTE_ALREADY_PREPARED", "Quote sudah terkunci untuk attempt berbeda.");
         if (quote.ExpiresAt <= DateTime.UtcNow)
             throw Invalid(409, "QUOTE_EXPIRED", "Quote kedaluwarsa. Periksa ulang harga dan stok.");
 
@@ -193,6 +218,152 @@ public sealed class QuoteCashSaleService(
             cancellationToken);
         return new CashCommitResult(prior, true);
     }
+
+    /// <summary>
+    /// Persist an immutable cash attempt before sending the commit. Serializes
+    /// with both commit and QRIS stock finalization. A lost response can then
+    /// be recovered on a second browser signed in as the SAME cashier.
+    /// No stock is reserved or transaction/payment created by preparation.
+    /// </summary>
+    public async Task<PreparedCashSaleDto> PrepareAsync(CommitCashSaleRequestDto request,
+        string? idempotencyKey, Guid outletId, CancellationToken cancellationToken = default)
+    {
+        if (!currentUser.TenantId.HasValue || !currentUser.UserId.HasValue)
+            throw new UnauthorizedAccessException();
+        if (request.QuoteId == Guid.Empty || request.QuoteVersion == Guid.Empty)
+            throw Invalid(400, "QUOTE_ID_REQUIRED", "Quote dan versi wajib dipilih.");
+        ValidateKey(idempotencyKey);
+        if (request.AmountReceived < 0m || request.AmountReceived != Money(request.AmountReceived))
+            throw Invalid(422, "CASH_AMOUNT_PRECISION_INVALID", "Uang diterima harus bernilai Rupiah dengan maksimal dua desimal.");
+        var hash = Fingerprint(request);
+        var tenantId = currentUser.TenantId.Value;
+        var userId = currentUser.UserId.Value;
+        await using var transaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        await TenantStockLock.AcquireAsync(db, tenantId, cancellationToken);
+
+        var existingKey = await db.SaleQuotes.FirstOrDefaultAsync(
+            x => x.OutletId == outletId && x.IdempotencyKey == idempotencyKey,
+            cancellationToken);
+        if (existingKey is not null)
+        {
+            if (existingKey.Id != request.QuoteId ||
+                existingKey.QuoteVersion != request.QuoteVersion ||
+                existingKey.CreatedByUserId != userId ||
+                existingKey.IdempotencyRequestHash != hash ||
+                existingKey.PreparedAmountReceived != request.AmountReceived)
+                throw Invalid(409, "IDEMPOTENCY_KEY_REUSED", "Kunci transaksi tidak cocok dengan attempt semula.");
+            if (existingKey.PreparedAt is not { } alreadyPrepared || existingKey.Status == "abandoned")
+                throw Invalid(409, "CASH_ATTEMPT_ALREADY_CLOSED", "Attempt sudah ditutup atau tidak dipersiapkan.");
+            return MapPrepared(existingKey, alreadyPrepared);
+        }
+
+        var quote = await db.SaleQuotes.SingleOrDefaultAsync(
+            x => x.Id == request.QuoteId && x.OutletId == outletId &&
+                 x.CreatedByUserId == userId,
+            cancellationToken)
+            ?? throw Invalid(404, "QUOTE_NOT_FOUND", "Quote tidak ditemukan untuk kasir ini.");
+        if (quote.QuoteVersion != request.QuoteVersion)
+            throw Invalid(409, "QUOTE_VERSION_MISMATCH", "Versi quote tidak sesuai.");
+        if (quote.Status != "quoted" || quote.IdempotencyKey is not null)
+            throw Invalid(409, "QUOTE_ALREADY_PREPARED", "Quote telah digunakan untuk attempt lain.");
+        if (quote.ExpiresAt <= DateTime.UtcNow)
+            throw Invalid(409, "QUOTE_EXPIRED", "Quote sudah kedaluwarsa.");
+        if (request.AmountReceived < quote.Total)
+            throw Invalid(422, "CASH_AMOUNT_INSUFFICIENT", "Uang diterima kurang dari total transaksi.");
+
+        var outstanding = await db.SaleQuotes.AsNoTracking().AnyAsync(x =>
+            x.OutletId == outletId && x.CreatedByUserId == userId &&
+            x.Status == "quoted" && x.IdempotencyKey != null &&
+            x.PreparedAt != null && x.Id != quote.Id,
+            cancellationToken);
+        if (outstanding)
+            throw Invalid(409, "CASH_ATTEMPT_ALREADY_PREPARED",
+                "Kasir ini masih memiliki transaksi tunai yang belum pasti. Pulihkan attempt sebelumnya.");
+        quote.IdempotencyKey = idempotencyKey;
+        quote.IdempotencyRequestHash = hash;
+        quote.PreparedAmountReceived = request.AmountReceived;
+        quote.PreparedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return MapPrepared(quote, quote.PreparedAt.Value);
+    }
+
+    /// <summary>
+    /// Explicit no-sale resolution. Must NEVER run after an ambiguous network
+    /// response without a verified no-sale status. Under the tenant lock, if the
+    /// commit won first, this refuses to discard its receipt; otherwise it
+    /// permanently blocks any delayed POST for this quote/key.
+    /// </summary>
+    public async Task<PreparedCashSaleDto> AbandonAsync(CommitCashSaleRequestDto request,
+        string? idempotencyKey, Guid outletId, CancellationToken cancellationToken = default)
+    {
+        if (!currentUser.TenantId.HasValue || !currentUser.UserId.HasValue)
+            throw new UnauthorizedAccessException();
+        ValidateKey(idempotencyKey);
+        await using var transaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        await TenantStockLock.AcquireAsync(db, currentUser.TenantId.Value, cancellationToken);
+        var quote = await db.SaleQuotes.SingleOrDefaultAsync(x =>
+            x.Id == request.QuoteId && x.OutletId == outletId &&
+            x.CreatedByUserId == currentUser.UserId.Value, cancellationToken)
+            ?? throw Invalid(404, "CASH_ATTEMPT_NOT_FOUND", "Attempt tidak ditemukan untuk kasir ini.");
+        if (quote.Status == "consumed")
+            throw Invalid(409, "CASH_ALREADY_COMMITTED",
+                "Transaksi sudah selesai. Ambil struk dari status server; jangan menghapus receipt.");
+        if (quote.Status != "quoted")
+            throw Invalid(409, "CASH_ATTEMPT_ALREADY_CLOSED", "Attempt sudah ditutup.");
+        if (quote.QuoteVersion != request.QuoteVersion ||
+            quote.IdempotencyKey is not null && quote.IdempotencyKey != idempotencyKey ||
+            quote.IdempotencyRequestHash is not null &&
+                quote.IdempotencyRequestHash != Fingerprint(request) ||
+            quote.PreparedAmountReceived.HasValue &&
+                quote.PreparedAmountReceived != request.AmountReceived)
+            throw Invalid(409, "IDEMPOTENCY_KEY_REUSED", "Data attempt tidak sama dengan permintaan awal.");
+        // A quote may expire before prepare ever reaches the server. The
+        // terminal no-sale action binds its original key/hash under the SAME
+        // lock, fencing any delayed prepare or commit of this quote.
+        quote.IdempotencyKey ??= idempotencyKey;
+        quote.IdempotencyRequestHash ??= Fingerprint(request);
+        quote.PreparedAmountReceived ??= request.AmountReceived;
+        quote.PreparedAt ??= DateTime.UtcNow;
+        quote.Status = "abandoned";
+        await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return MapPrepared(quote, quote.PreparedAt.Value);
+    }
+
+    public async Task<PreparedCashSaleDto?> GetCurrentPreparedAsync(Guid outletId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!currentUser.TenantId.HasValue || !currentUser.UserId.HasValue)
+            throw new UnauthorizedAccessException();
+        var quote = await db.SaleQuotes.AsNoTracking()
+            .Where(x => x.OutletId == outletId &&
+                x.CreatedByUserId == currentUser.UserId.Value &&
+                x.Status == "quoted" && x.PreparedAt != null &&
+                x.IdempotencyKey != null && x.PreparedAmountReceived != null)
+            .OrderBy(x => x.PreparedAt).ThenBy(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        return quote?.PreparedAt is { } preparedAt ? MapPrepared(quote, preparedAt) : null;
+    }
+
+    private static PreparedCashSaleDto MapPrepared(SaleQuote quote, DateTime preparedAt) => new()
+    {
+        QuoteId = quote.Id,
+        QuoteVersion = quote.QuoteVersion,
+        OutletId = quote.OutletId,
+        IdempotencyKey = quote.IdempotencyKey!,
+        AmountReceived = quote.PreparedAmountReceived!.Value,
+        Total = quote.Total,
+        Status = quote.Status == "consumed" ? "committed" :
+            quote.Status == "abandoned" ? "abandoned" : "prepared",
+        TransactionId = quote.ConsumedTransactionId,
+        PreparedAt = preparedAt,
+        QuoteExpiresAt = quote.ExpiresAt
+    };
 
     private static void ValidateKey(string? key)
     {

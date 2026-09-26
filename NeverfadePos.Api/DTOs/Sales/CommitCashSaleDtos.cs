@@ -24,3 +24,18 @@ public sealed class CashSaleMetaDto
     public Guid QuoteId { get; set; }
     public Guid QuoteVersion { get; set; }
 }
+
+/// <summary>A durable server-side cash attempt; this is not a paid transaction.</summary>
+public sealed class PreparedCashSaleDto
+{
+    public Guid QuoteId { get; set; }
+    public Guid QuoteVersion { get; set; }
+    public Guid OutletId { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public decimal AmountReceived { get; set; }
+    public decimal Total { get; set; }
+    public string Status { get; set; } = "prepared";
+    public Guid? TransactionId { get; set; }
+    public DateTime PreparedAt { get; set; }
+    public DateTime QuoteExpiresAt { get; set; }
+}

@@ -134,6 +134,7 @@ public sealed class SaleQuoteService(
         var dto = JsonSerializer.Deserialize<SaleQuoteDto>(quote.SnapshotJson, SnapshotOptions)
             ?? throw new InvalidOperationException("Stored quote snapshot invalid.");
         dto.Status = quote.Status == "consumed" ? "consumed" :
+            quote.Status == "abandoned" ? "abandoned" :
             quote.ExpiresAt <= DateTime.UtcNow ? "expired" : "quoted";
         dto.StockReserved = false;
         return dto;
