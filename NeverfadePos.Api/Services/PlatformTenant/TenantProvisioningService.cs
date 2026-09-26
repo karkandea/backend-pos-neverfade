@@ -38,6 +38,8 @@ internal sealed class TenantProvisioningService(
         var now = DateTime.UtcNow;
         var namaToko = request.NamaToko.Trim();
         var businessType = request.BusinessType.Trim();
+        var mode = request.Mode.Trim();
+        var timeZoneId = request.TimeZoneId.Trim();
         var ownerRequest = request.Owner!;
         var ownerNama = ownerRequest.Nama.Trim();
         var ownerUsername = ownerRequest.Username.Trim();
@@ -74,6 +76,8 @@ internal sealed class TenantProvisioningService(
             Slug = slug,
             Status = "active",
             BusinessType = businessType,
+            Mode = mode,
+            TimeZoneId = timeZoneId,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -145,6 +149,8 @@ internal sealed class TenantProvisioningService(
                 db.Users.Add(owner);
                 db.Settings.Add(settings);
                 db.Outlets.Add(defaultOutlet);
+                if (mode == "demo")
+                    DemoTenantCatalog.Add(db, tenantId, defaultOutlet.Id, businessType);
                 await db.SaveChangesAsync(cancellationToken);
                 if (transaction is not null)
                     await transaction.CommitAsync(cancellationToken);
@@ -186,6 +192,8 @@ internal sealed class TenantProvisioningService(
         {
             NamaToko = request.NamaToko.Trim(),
             BusinessType = request.BusinessType.Trim(),
+            Mode = request.Mode.Trim(),
+            TimeZoneId = request.TimeZoneId.Trim(),
             OwnerNama = request.Owner!.Nama.Trim(),
             OwnerUsername = request.Owner.Username.Trim(),
             OwnerPassword = request.Owner.Password
@@ -250,6 +258,10 @@ internal sealed class TenantProvisioningService(
             string.IsNullOrWhiteSpace(request.NamaToko) ||
             request.NamaToko.Trim().Length > 200 ||
             !BusinessTypes.IsValid(request.BusinessType?.Trim()) ||
+            request.Mode is not ("live" or "demo") ||
+            string.IsNullOrWhiteSpace(request.TimeZoneId) ||
+            request.TimeZoneId.Length > 64 ||
+            !IsValidTimeZone(request.TimeZoneId) ||
             string.IsNullOrWhiteSpace(request.Owner.Nama) ||
             request.Owner.Nama.Trim().Length > 200 ||
             string.IsNullOrWhiteSpace(request.Owner.Username) ||
@@ -259,6 +271,13 @@ internal sealed class TenantProvisioningService(
         {
             throw ValidationError();
         }
+    }
+
+    private static bool IsValidTimeZone(string value)
+    {
+        try { _ = TimeZoneInfo.FindSystemTimeZoneById(value); return true; }
+        catch (TimeZoneNotFoundException) { return false; }
+        catch (InvalidTimeZoneException) { return false; }
     }
 
     private async Task<string> GenerateSlugAsync(
@@ -386,6 +405,8 @@ internal sealed class TenantProvisioningService(
             Slug = tenant.Slug,
             Status = tenant.Status,
             BusinessType = tenant.BusinessType,
+            Mode = tenant.Mode,
+            TimeZoneId = tenant.TimeZoneId,
             Capabilities = BusinessCapabilityPresets.Resolve(tenant.BusinessType),
             Owner = owner is null
                 ? null

@@ -31,6 +31,8 @@ internal sealed class PaymentService(
         var tenantId = currentUser.TenantId ??
             throw new UnauthorizedAccessException();
 
+        if (db.Tenants.AsNoTracking().Any(x => x.Id == tenantId && x.Mode == "demo"))
+            return new PaymentCapabilitiesDto { QrisEnabled = false, Mode = "disabled", IsSandbox = false };
         return paymentModeGate.GetCapabilities(tenantId);
     }
 
@@ -43,6 +45,11 @@ internal sealed class PaymentService(
         {
             throw new UnauthorizedAccessException();
         }
+
+        if (await db.Tenants.AsNoTracking().AnyAsync(
+            x => x.Id == currentUser.TenantId.Value && x.Mode == "demo", cancellationToken))
+            throw new PaymentApiException(StatusCodes.Status403Forbidden,
+                "PAYMENT_DEMO_TENANT_FORBIDDEN", "Tenant demo tidak dapat membuat pembayaran provider.");
 
         paymentModeGate.EnsureQrisAllowed(
             currentUser.TenantId.Value);

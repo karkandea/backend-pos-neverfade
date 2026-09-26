@@ -8,6 +8,10 @@ public sealed class CreatePlatformTenantRequestDto
     public string NamaToko { get; set; } = string.Empty;
 
     public string BusinessType { get; set; } = string.Empty;
+    public string Mode { get; set; } = "live";
+
+    public string TimeZoneId { get; set; } = "Asia/Jakarta";
+
 
     public CreatePlatformTenantOwnerRequestDto? Owner { get; set; }
 

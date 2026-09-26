@@ -83,6 +83,108 @@ public sealed class PlatformTenantControlPlaneTests
     }
 
     [Fact]
+    public async Task Provisioning_DemoAndLiveHaveSeparateCatalogs()
+    {
+        await using var factory = new ControlPlaneFactory();
+        var (platform, _) = await CreatePlatformClientAsync(factory);
+        var demoResponse = await platform.PostAsJsonAsync("/api/platform/tenants",
+            CreateRequest("Demo Shop", "s1.demo.owner", "food_beverage", "demo", "Asia/Makassar"));
+        Assert.Equal(HttpStatusCode.OK, demoResponse.StatusCode);
+        var demo = (await demoResponse.Content.ReadFromJsonAsync<PlatformTenantDto>())!;
+        Assert.Equal("demo", demo.Mode);
+        Assert.Equal("Asia/Makassar", demo.TimeZoneId);
+        var liveResponse = await platform.PostAsJsonAsync("/api/platform/tenants",
+            CreateRequest("Live Shop", "s1.live.owner", "food_beverage"));
+        Assert.Equal(HttpStatusCode.OK, liveResponse.StatusCode);
+        var live = (await liveResponse.Content.ReadFromJsonAsync<PlatformTenantDto>())!;
+        Assert.Equal("live", live.Mode);
+        Assert.Equal("Asia/Jakarta", live.TimeZoneId);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var trusted = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>();
+        using (trusted.Begin(demo.Id, "VERIFY_DEMO"))
+        {
+            Assert.Equal(2, await db.Products.CountAsync());
+            Assert.Equal(2, await db.RestaurantTables.CountAsync());
+        }
+        using (trusted.Begin(live.Id, "VERIFY_LIVE"))
+        {
+            Assert.Empty(await db.Products.ToListAsync());
+            Assert.Empty(await db.RestaurantTables.ToListAsync());
+        }
+    }
+
+    [Theory]
+    [InlineData("general_retail", "DEMO-GR-")]
+    [InlineData("fashion_retail", "DEMO-FA-")]
+    [InlineData("food_beverage", "DEMO-FB-")]
+    [InlineData("laundry", "DEMO-LD-")]
+    [InlineData("salon_barbershop", "DEMO-SB-")]
+    public async Task DemoProvisioning_SeedsOnlySelectedBusinessType(string type, string prefix)
+    {
+        await using var factory = new ControlPlaneFactory();
+        var (platform, _) = await CreatePlatformClientAsync(factory);
+        var response = await platform.PostAsJsonAsync("/api/platform/tenants",
+            CreateRequest("Mode Test", "s1.demo.owner", type, "demo"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var tenant = (await response.Content.ReadFromJsonAsync<PlatformTenantDto>())!;
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var trusted = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>();
+        using (trusted.Begin(tenant.Id, "VERIFY_DEMO_TYPE"))
+        {
+            var products = await db.Products.ToListAsync();
+            Assert.Equal(2, products.Count);
+            Assert.All(products, product => Assert.StartsWith(prefix, product.Kode));
+            Assert.Equal(type == "food_beverage" ? 2 : 0,
+                await db.RestaurantTables.CountAsync());
+            if (type is "laundry" or "salon_barbershop")
+                Assert.All(products, product => Assert.False(product.TracksStock));
+        }
+    }
+
+    [Fact]
+    public async Task Provisioning_RejectsUnsupportedDemoModeAndTimezone()
+    {
+        await using var factory = new ControlPlaneFactory();
+        var (platform, _) = await CreatePlatformClientAsync(factory);
+        var before = await GetCountsAsync(factory);
+        Assert.Equal(HttpStatusCode.BadRequest, (await platform.PostAsJsonAsync(
+            "/api/platform/tenants", CreateRequest("Invalid", "s1.invalid", "laundry", "preview"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await platform.PostAsJsonAsync(
+            "/api/platform/tenants", CreateRequest("Invalid TZ", "s1.invalid.tz", "laundry", "demo", "Atlantis/Nowhere"))).StatusCode);
+        Assert.Equal(before, await GetCountsAsync(factory));
+    }
+
+    [Fact]
+    public async Task DemoTenant_CannotCreateProviderQrisEvenWhenItsProductsExist()
+    {
+        await using var factory = new ControlPlaneFactory();
+        var (platform, _) = await CreatePlatformClientAsync(factory);
+        var created = await platform.PostAsJsonAsync("/api/platform/tenants",
+            CreateRequest("Demo Qris Shop", "s1.demo.qris", "food_beverage", "demo"));
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        using var client = factory.CreateClient();
+        var login = await client.PostAsJsonAsync("/api/auth/login",
+            new { username = "s1.demo.qris", password = "InitialPassword123!" });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var identity = (await login.Content.ReadFromJsonAsync<LoginResponseDto>())!;
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", identity.Token);
+        var capabilities = await client.GetAsync("/api/payments/capabilities");
+        Assert.Equal(HttpStatusCode.OK, capabilities.StatusCode);
+        Assert.Contains("\"qrisEnabled\":false", await capabilities.Content.ReadAsStringAsync());
+        var qris = await client.PostAsJsonAsync("/api/payments/qris", new
+        {
+            metodePembayaran = "QRIS",
+            items = new[] { new { id = Guid.NewGuid(), nama = "Demo", qty = 1, hargaJual = 10000m, subtotal = 10000m } }
+        });
+        Assert.Equal(HttpStatusCode.Forbidden, qris.StatusCode);
+        Assert.Contains("PAYMENT_DEMO_TENANT_FORBIDDEN", await qris.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Provisioning_RejectsMissingOrInvalidBusinessType()
     {
         await using var factory = new ControlPlaneFactory();
@@ -391,11 +493,15 @@ public sealed class PlatformTenantControlPlaneTests
     private static object CreateRequest(
         string shop,
         string username,
-        string businessType = "general_retail") =>
+        string businessType = "general_retail",
+        string mode = "live",
+        string timeZoneId = "Asia/Jakarta") =>
         new
         {
             namaToko = shop,
             businessType,
+            mode,
+            timeZoneId,
             owner = new
             {
                 nama = $"Owner {shop}",

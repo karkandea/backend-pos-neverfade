@@ -16,6 +16,7 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
                 table.HasCheckConstraint(
                     "CK_tenants_Status",
                     "\"Status\" IN ('active', 'suspended')");
+                table.HasCheckConstraint("CK_tenants_Mode", "\"Mode\" IN ('live', 'demo')");
                 table.HasCheckConstraint(
                     "CK_tenants_BusinessType",
                     "\"BusinessType\" IN ('general_retail', 'fashion_retail', 'food_beverage', 'laundry', 'salon_barbershop')");
@@ -29,5 +30,8 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.HasIndex(x => x.Status);
         builder.Property(x => x.BusinessType).HasMaxLength(40).HasDefaultValue(BusinessTypes.GeneralRetail).IsRequired();
         builder.HasIndex(x => x.BusinessType);
+        builder.Property(x => x.Mode).HasMaxLength(10).HasDefaultValue("live").IsRequired();
+        builder.Property(x => x.TimeZoneId).HasMaxLength(64).HasDefaultValue("Asia/Jakarta").IsRequired();
+
     }
 }

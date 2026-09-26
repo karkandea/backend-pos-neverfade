@@ -49,6 +49,8 @@ internal sealed class TenantContextService(
             TenantId = tenant.Id,
             NamaToko = tenant.NamaToko,
             BusinessType = tenant.BusinessType,
+            Mode = tenant.Mode,
+            TimeZoneId = tenant.TimeZoneId,
             Capabilities = BusinessCapabilityPresets.Resolve(tenant.BusinessType),
             Role = role,
             TenantStatus = tenant.Status,
