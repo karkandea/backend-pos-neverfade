@@ -65,12 +65,14 @@ public sealed class SaleQuoteService(
                 ProductId = resolved.Product.Id,
                 VariantId = resolved.Variant?.Id,
                 PriceLevelId = resolved.PriceLevelId,
+                RequestedPriceLevelId = line.PriceLevelId,
                 ProductName = resolved.Product.Nama,
                 Unit = resolved.Product.Satuan,
                 PriceLevelName = resolved.PriceLevelName,
                 Quantity = resolved.Quantity,
                 UnitPrice = Money(resolved.UnitPrice),
-                Subtotal = Money(resolved.Subtotal)
+                Subtotal = Money(resolved.Subtotal),
+                Note = line.Note?.Trim() ?? string.Empty
             });
         }
 

@@ -20,6 +20,8 @@ public sealed class SaleQuoteLineRequestDto
     public Guid? VariantId { get; set; }
     public Guid? PriceLevelId { get; set; }
     public decimal Quantity { get; set; }
+    [StringLength(500)]
+    public string? Note { get; set; }
 }
 
 public sealed class SaleQuoteLineDto
@@ -27,12 +29,14 @@ public sealed class SaleQuoteLineDto
     public Guid ProductId { get; set; }
     public Guid? VariantId { get; set; }
     public Guid? PriceLevelId { get; set; }
+    public Guid? RequestedPriceLevelId { get; set; }
     public string ProductName { get; set; } = string.Empty;
     public string Unit { get; set; } = string.Empty;
     public string PriceLevelName { get; set; } = string.Empty;
     public decimal Quantity { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal Subtotal { get; set; }
+    public string Note { get; set; } = string.Empty;
 }
 
 public sealed class SaleQuoteDto

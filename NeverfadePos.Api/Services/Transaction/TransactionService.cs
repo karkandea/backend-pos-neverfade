@@ -5,6 +5,7 @@ using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Services.Retail;
+using NeverfadePos.Api.Services.Sales;
 
 namespace NeverfadePos.Api.Services.Transaction;
 
@@ -144,9 +145,10 @@ public sealed class TransactionService(
                 "Pajak harus berada antara 0 sampai 100 persen.");
         }
 
-        await using var trx =
-            await db.Database.BeginTransactionAsync(
-                cancellationToken);
+        await using var ownedTransaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        await TenantStockLock.AcquireAsync(db, currentUser.TenantId.Value, cancellationToken);
 
         NeverfadePos.Api.Entities.Customer?
             customer = null;
@@ -474,8 +476,8 @@ public sealed class TransactionService(
         await db.SaveChangesAsync(
             cancellationToken);
 
-        await trx.CommitAsync(
-            cancellationToken);
+        if (ownedTransaction is not null)
+            await ownedTransaction.CommitAsync(cancellationToken);
 
         return await GetByIdAsync(
             entity.Id,

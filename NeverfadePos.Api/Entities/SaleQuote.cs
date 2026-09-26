@@ -12,4 +12,7 @@ public sealed class SaleQuote : BaseEntity
     public string SnapshotJson { get; set; } = string.Empty;
     public decimal Total { get; set; }
     public string Status { get; set; } = "quoted";
+    public string? IdempotencyKey { get; set; }
+    public string? IdempotencyRequestHash { get; set; }
+    public Guid? ConsumedTransactionId { get; set; }
 }

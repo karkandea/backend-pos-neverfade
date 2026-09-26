@@ -17,9 +17,17 @@
 - Copied the isolated S1 QA DB to dedicated `neverfade_s2_quote_rehearsal`; idempotent migration applied successfully, EF history **22** and new `sale_quotes` initially empty. Production `neverfade_prod` was not read or mutated by this migration run.
 - Separate loopback-only S2 QA service port 5133, DB `neverfade_s2_quote_gate`, `Payments__Mode=Disabled`. Latest quote binary deployed to isolated QA after preserving the prior service configuration. Direct API smoke: owner auth, create/read 200, client fake totals ignored, discount computed by server, stock unchanged, foreign tenant read 404. QA quote test record is not a paid sale.
 
+## Slice 2 — Quote-backed idempotent cash commit (source + isolated QA migration)
+
+- `POST /api/v2/sales/cash` requires a matching quote ID/version, an explicit `Idempotency-Key` (16–128 permitted ASCII chars), selected authorized outlet and amount received. It returns the existing transaction DTO plus `replayed` and correlation ID. Same key+same request returns the same paid sale; same key+changed payload returns 409; a consumed quote cannot be reused with another key. No extra provider payment is created.
+- Reprices the selected catalog and tax after a shared PostgreSQL transaction-scoped tenant lock, rejects stale quotes/expired versions/insufficient stock, and uses the existing cash TransactionService under the outer transaction for customer points, sale snapshots and stock history. Legacy cash writer participates in this lock. This lock is not yet used by the QRIS finalizer, so the **full cross-method stock race remains an open release gate**.
+- Additive migration `20260926113833_AddSprint2QuoteCashCommit` stores consumed transaction, request hash, key and a unique tenant/outlet/key index; the quote retains original manual-vs-automatic tier selection and item notes. Typed FE `commitCashSale` requires the caller to reuse a stable idempotency key; the actual checkout button is **not switched yet**.
+- Source Release build and full tests **185/185 PASS**. Unit/API regressions cover same-key replay without duplicate sale/stock history, changed-key conflict and stale-stock rejection. Migration on dedicated clone `neverfade_s2_cash_gate` PASS: **23 EF migrations**, all three new columns present. S2 API service runs on loopback port 5133 against that QA-only DB, payment mode disabled. Earlier quote DB and service configuration are preserved for rollback.
+- **Not claimed:** real PostgreSQL concurrent two-cashier commit/replay execution is still unverified. The local automated write-smoke attempt was blocked by the remote execution safety gate; no result is inferred from that attempt. Do not merge or release Sprint 2 until this gate, provider-payment replay, and FE recovery checks run.
+
 ## OPEN / NOT RELEASE-READY
 
-1. Quote-consumption contract with mandatory request idempotency, replay/mismatch handling and no duplicate paid sale.
+1. Real PostgreSQL concurrency proof for quote-consumption and mandatory idempotency (same-key simultaneous retry, different quotes on last stock, no duplicate paid sale); source implementation exists but database race gate is open.
 2. PostgreSQL concurrency/race test: two cashiers, one remaining stock; atomic reservation/finalization and no stock negative or double decrement. Cash and QRIS flows must share the same invariant.
 3. Verified Xendit webhook replay/out-of-order and cancel-vs-paid state machine; same attempt after refresh, provider-status reconciliation and unknown-state UX without prompting duplicate payment.
 4. FE checkout integration, real money/stock negative tests, formal UAT/security/rollback review and remote CI. GitHub Actions is still externally blocked by billing; local PASS is **not** CI sign-off.
