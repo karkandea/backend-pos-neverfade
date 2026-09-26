@@ -122,16 +122,14 @@ public sealed partial class AdvancedRetailApiTests
         var otherKey = Guid.NewGuid().ToString("N");
         owner.DefaultRequestHeaders.Remove("Idempotency-Key");
         owner.DefaultRequestHeaders.Add("Idempotency-Key", otherKey);
-        var concurrent = await owner.PostAsJsonAsync("/api/v2/sales/cash/prepare", new
-        { quoteId = second.QuoteId, quoteVersion = second.QuoteVersion,
-            amountReceived = second.Total });
-        Assert.Equal(HttpStatusCode.Conflict, concurrent.StatusCode);
-        Assert.Contains("CASH_ATTEMPT_ALREADY_PREPARED", await concurrent.Content.ReadAsStringAsync());
-        var bypass = await owner.PostAsJsonAsync("/api/v2/sales/cash", new
-        { quoteId = second.QuoteId, quoteVersion = second.QuoteVersion,
-            amountReceived = second.Total });
+        var otherInput = new { quoteId = second.QuoteId,
+            quoteVersion = second.QuoteVersion, amountReceived = second.Total };
+        var bypass = await owner.PostAsJsonAsync("/api/v2/sales/cash", otherInput);
         Assert.Equal(HttpStatusCode.Conflict, bypass.StatusCode);
         Assert.Contains("CASH_ATTEMPT_ALREADY_PREPARED", await bypass.Content.ReadAsStringAsync());
+        var concurrent = await owner.PostAsJsonAsync("/api/v2/sales/cash/prepare", otherInput);
+        Assert.Equal(HttpStatusCode.Conflict, concurrent.StatusCode);
+        Assert.Contains("CASH_ATTEMPT_ALREADY_PREPARED", await concurrent.Content.ReadAsStringAsync());
         owner.DefaultRequestHeaders.Remove("Idempotency-Key");
         owner.DefaultRequestHeaders.Add("Idempotency-Key", key);
         var abandoned = await owner.PostAsJsonAsync("/api/v2/sales/cash/abandon", input);

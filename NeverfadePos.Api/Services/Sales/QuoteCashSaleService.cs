@@ -106,6 +106,12 @@ public sealed class QuoteCashSaleService(
              quote.PreparedAmountReceived != request.AmountReceived ||
              quote.CreatedByUserId != currentUser.UserId.Value))
             throw Invalid(409, "QUOTE_ALREADY_PREPARED", "Quote sudah terkunci untuk attempt berbeda.");
+        if (quote.IdempotencyKey is null && await db.SaleQuotes.AsNoTracking().AnyAsync(x =>
+                x.OutletId == outletId && x.CreatedByUserId == currentUser.UserId!.Value &&
+                x.Status == "quoted" && x.PreparedAt != null &&
+                x.IdempotencyKey != null && x.Id != quote.Id, cancellationToken))
+            throw Invalid(409, "CASH_ATTEMPT_ALREADY_PREPARED",
+                "Selesaikan atau tutup attempt tunai sebelumnya sebelum commit quote lain.");
         if (quote.ExpiresAt <= DateTime.UtcNow)
             throw Invalid(409, "QUOTE_EXPIRED", "Quote kedaluwarsa. Periksa ulang harga dan stok.");
 
