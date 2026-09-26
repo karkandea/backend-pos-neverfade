@@ -98,6 +98,12 @@ Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d
 - Separate FE `/laundry/antrean` work queue and restricted sidebar/mobile navigation; user-management role option and post-login landing added. Source regression verifies redaction, denied finance/checkout/other outlet, allowed work transitions and JWT invalidation after role change.
 - Backend **172/172 PASS**, frontend build/lint PASS; Sprint 1 mocked desktop/tablet/mobile **18/18 PASS**. No schema migration. This source checkpoint is not yet evidence of public QA browser UAT or full demo reset/onboarding readiness.
 
+## Checkpoint 12 — laundry operator isolated QA preview (2026-09-26)
+
+- Promoted source-verified restricted laundry operator to dedicated public QA release `20260926-s1-laundry`: backend `9ba12e3c9686bf8cdb59c9bdb8d186b1ca9f7ab1`, frontend `c790125745d4b8e4cac3f96b50f976581cd33f11`. No schema migration, production change, or merge. Previous report release/config retained for rollback; QA service active and OpenAPI HTTP 200.
+- Created **QA-only** `qa.laundry.operator` in the isolated `qa-s1-laundry` tenant, assigned to its default outlet; this fixture reuses that QA tenant's owner test-password hash. No real merchant credential/data is copied. Direct isolated QA API smoke proved operator login/context 200; restricted queue 200 without price/payment/contact fields, and legacy transaction and work-order endpoints 403.
+- Source gates: backend **172/172 PASS**; FE build/lint PASS and mocked Sprint 1 UX **18/18 PASS across desktop/tablet/mobile**. Public HTTPS browser-specific UAT of this exact new binary and complete laundry handoff remains **open**. Operator changes do not imply the full laundry S7–S8 product is ready.
+
 ## Mandatory exit gates still OPEN
 
 - Complete role taxonomy (notably stylist/booking and per-station extensions), delegated admin capability and object-level access on **all** remaining relevant tenant/outlet resources. Report summary/chart/top-products now enforce outlet scope in source; other reports, stock and shared-POS flows still require end-to-end audit.
