@@ -1,6 +1,6 @@
 # Sprint 1 — Implementation & QA status
 
-**Status: IN PROGRESS — NOT MERGE-READY / NOT RELEASE-READY.** Production was not deployed.
+**Status: IN PROGRESS — public QA preview deployed; NOT MERGE-READY / NOT PRODUCTION-RELEASE-READY.** Production was not deployed.
 
 Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d5`, frontend `0b38d9315f573577ce0efef41a017641985cf7c2`. Both changes are isolated on `feat/s1-tenant-role-demo-20260925` worktrees. Frozen contracts were not edited.
 
@@ -38,6 +38,14 @@ Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d
 - Platform tenant create has optional `Idempotency-Key` request header. Atomic unique receipt stores only request digest and tenant reference, never owner password; unchanged same-key retry returns existing tenant, changed payload returns 409. FE retains retry key for an unchanged form.
 - Full backend API test suite **161 passed, 0 failed, 0 skipped**; latest idempotency migration applied to isolated PostgreSQL. FE build and lint pass. No production deployment, push or merge.
 - Remaining proof: concurrent same-key requests against real PostgreSQL, complete tenant onboarding/demo segregation, operator roles, full cross-category/outlet authorization and release/UAT gates.
+
+## Checkpoint 4 — isolated public QA preview (2026-09-26)
+
+- **QA preview deployed (not production, not release sign-off):** `https://neverfade-s1-qa.103-175-207-127.nip.io/qa-access`. Dedicated Nginx virtual host with valid HTTPS and a Basic-auth entry that issues an HttpOnly/Secure/SameSite cookie for UI/API. Anonymous static requests redirect to gate; API rejects requests without gate cookie; failed Basic auth never receives gate cookie. Credentials are managed outside Git.
+- Dedicated VPS PostgreSQL database `neverfade_s1_qa`, least-privilege OS/DB user `neverfade_s1_qa`, API loopback `127.0.0.1:5119` via `neverfade-s1-qa.service`, static frontend release. No copy of production records or production credentials. Payments disabled; WA endpoint configured to a non-listening QA loopback target; separate JWT keys. **Legacy staging webhook was intentionally not reused** because it targets production.
+- Deployed executable/asset manifest: backend `81dbbf13e3ff2cd8b948f7515de3a8873d230288`, frontend `75d938d2c0e0aad05e814d9e1da73f31da3e4a0c`; all 19 migrations installed against QA database, including platform provisioning idempotency. QA data is seeded separately, never part of a production migration.
+- Isolated live smoke through public HTTPS: **9 passed, 0 failed** on Desktop Chromium: demo owner/admin/cashier, five additional category owner accounts (food/beverage, fashion, laundry, salon, barbershop), and real restaurant table→order→send-to-kitchen→queue with cleanup. Initial QA-entry Content-Type issue was fixed and the complete suite rerun green. The five category accounts use manually created *QA-only fixtures*, not the yet-to-be-implemented official demo provisioning contract.
+- QA smoke proves the named paths only; remaining mobile/tablet live matrix, full RBAC/UAT/security/performance gates and real concurrent PostgreSQL idempotency proof remain open. Do not merge or deploy production based on this preview.
 
 ## Mandatory exit gates still OPEN
 
