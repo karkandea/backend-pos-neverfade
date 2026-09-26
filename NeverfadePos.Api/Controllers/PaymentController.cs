@@ -9,6 +9,7 @@ using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Services.Outlet;
 using NeverfadePos.Api.Services.Payment;
+using NeverfadePos.Api.Services.Sales;
 
 namespace NeverfadePos.Api.Controllers;
 
@@ -136,8 +137,11 @@ public sealed class PaymentController(
                 x.ExpiresAt.Value <= now);
         }
 
-        var candidates = await query.ToListAsync(cancellationToken);
-        var changed = false;
+        // Fetch immutable provider references without tracking; external status
+        // lookups are intentionally outside the database transaction/stock lock.
+        var candidates = await query.AsNoTracking()
+            .Select(x => new { x.Id, x.TenantId, x.ProviderPaymentRequestId })
+            .ToListAsync(cancellationToken);
 
         foreach (var payment in candidates)
         {
@@ -185,22 +189,32 @@ public sealed class PaymentController(
                 continue;
             }
 
-            payment.Status = PaymentConstants.StatusFailed;
-            payment.FailureCode = "PAYMENT_REQUEST_EXPIRED";
-            payment.UpdatedAt = now;
+            // A paid webhook may have finalized while the provider was queried.
+            // All cash and webhook finalizers serialize on this same tenant lock.
+            await using var expiryTransaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(cancellationToken)
+                : null;
+            await TenantStockLock.AcquireAsync(db, payment.TenantId, cancellationToken);
+            var fresh = await db.Payments.Include(x => x.Transaction)
+                .SingleOrDefaultAsync(x => x.Id == payment.Id &&
+                    x.Status == PaymentConstants.StatusPending &&
+                    x.ProviderPaymentRequestId == payment.ProviderPaymentRequestId &&
+                    x.Transaction != null && x.Transaction.OutletId == outletId,
+                    cancellationToken);
+            if (fresh is null || fresh.Transaction?.Status == TransactionStatuses.Paid)
+                continue;
+            if (!forceProviderCheck &&
+                (!fresh.ExpiresAt.HasValue || fresh.ExpiresAt.Value > now))
+                continue;
 
-            if (payment.Transaction is not null &&
-                payment.Transaction.Status == TransactionStatuses.PendingPayment)
-            {
-                payment.Transaction.Status = TransactionStatuses.Failed;
-            }
-
-            changed = true;
-        }
-
-        if (changed)
-        {
+            fresh.Status = PaymentConstants.StatusFailed;
+            fresh.FailureCode = "PAYMENT_REQUEST_EXPIRED";
+            fresh.UpdatedAt = DateTime.UtcNow;
+            if (fresh.Transaction?.Status == TransactionStatuses.PendingPayment)
+                fresh.Transaction.Status = TransactionStatuses.Failed;
             await db.SaveChangesAsync(cancellationToken);
+            if (expiryTransaction is not null)
+                await expiryTransaction.CommitAsync(cancellationToken);
         }
     }
 }
