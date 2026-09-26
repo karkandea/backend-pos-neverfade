@@ -97,4 +97,4 @@
 3. Full live-provider reconciliation by immutable reference, provider-status recovery without webhook, approved exception-queue resolution, cancel-vs-paid under actual PostgreSQL concurrency, and user-tested unknown-state flow. Source/mocked webhook regressions pass; provider financial sign-off remains open.
 4. Default-on FE checkout migration, wider operator/admin discovery beyond same-cashier pending attempts, real money/stock negative tests, formal UAT/security/rollback review and remote CI. GitHub Actions is still externally blocked by billing; local PASS is **not** CI sign-off.
 
-**Status:** Sprint 2 IN PROGRESS. No Sprint 2 merge or production deployment.
+**Status:** Sprint 2 IN PROGRESS; production **testing deployment is active** (backend `8959913`, frontend `95bdcf4`, 24 migrations). Not GA or merge-ready; manual financial/concurrency/provider UAT and CI remain open. See `PRODUCTION_TESTING_RELEASE_20260926.md`.
