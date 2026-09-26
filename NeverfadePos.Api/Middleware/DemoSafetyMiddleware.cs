@@ -1,3 +1,6 @@
+using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
+using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DemoMode;
 
 namespace NeverfadePos.Api.Middleware;
@@ -15,16 +18,61 @@ public sealed class DemoSafetyMiddleware
         _configuration = configuration;
     }
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, AppDbContext db)
     {
-        if (!_configuration.GetValue<bool>("DemoMode:Enabled") ||
-            context.User.Identity?.IsAuthenticated != true ||
-            !Guid.TryParse(
-                context.User.FindFirst("tenant_id")?.Value,
-                out var tenantId) ||
-            !DemoModeDefaults.IsDemoTenant(tenantId))
+        if (!_configuration.GetValue<bool>("DemoMode:Enabled"))
         {
             await _next(context);
+            return;
+        }
+
+        // Public session renewal and allowlisted telemetry must work even if an
+        // old browser sends an expired or pre-isolation bearer token.
+        if (HttpMethods.IsPost(context.Request.Method) &&
+            context.Request.Path.Equals("/api/demo/session", StringComparison.OrdinalIgnoreCase))
+        {
+            // This public endpoint establishes a new isolated tenant, even when an
+            // existing browser sends its old bearer token. Treat it as anonymous.
+            context.User = new ClaimsPrincipal(new ClaimsIdentity());
+            await _next(context);
+            return;
+        }
+
+        if (HttpMethods.IsPost(context.Request.Method) &&
+            context.Request.Path.Equals("/api/demo/events", StringComparison.OrdinalIgnoreCase))
+        {
+            await _next(context);
+            return;
+        }
+
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            await _next(context);
+            return;
+        }
+
+        if (!Guid.TryParse(context.User.FindFirst("tenant_id")?.Value, out var tenantId) ||
+            tenantId == Guid.Empty)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        // Reserved shared demo tenants are never allowed to serve public traffic.
+        // Every accepted user token must belong to an unexpired visitor tenant.
+        var active = !DemoModeDefaults.IsDemoTenant(tenantId) &&
+            await db.DemoVisitorSessions.AsNoTracking().AnyAsync(x =>
+                x.TenantId == tenantId && x.ExpiresAt > DateTime.UtcNow,
+                context.RequestAborted);
+
+        if (!active)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                code = "DEMO_SESSION_EXPIRED",
+                message = "Sesi demo berakhir. Pilih kembali jenis bisnis."
+            });
             return;
         }
 

@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
         _tenantExecutionContext = tenantExecutionContext;
     }
 
+    public DbSet<DemoVisitorSession> DemoVisitorSessions => Set<DemoVisitorSession>();
     public DbSet<DemoConversionEvent> DemoConversionEvents => Set<DemoConversionEvent>();
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();

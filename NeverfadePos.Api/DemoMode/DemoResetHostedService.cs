@@ -41,25 +41,35 @@ internal static class DemoResetScheduler
         ILogger logger,
         CancellationToken stoppingToken)
     {
+        var lastBaselineReset = DateTime.UtcNow;
         while (!stoppingToken.IsCancellationRequested)
         {
-            // Initial reset is awaited during application bootstrap. Do not
-            // race the first user requests with a second background reset.
             try
             {
-                await Task.Delay(interval, stoppingToken);
-            }
-            catch (OperationCanceledException)
-                when (stoppingToken.IsCancellationRequested)
-            {
-                return;
-            }
+                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                await DemoSessionLifecycle.CreationLock.WaitAsync(stoppingToken);
+                try
+                {
+                    await using var scope = scopeFactory.CreateAsyncScope();
+                    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    var removed = await DemoSessionLifecycle.CleanupExpiredAsync(
+                        db,
+                        scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>(),
+                        stoppingToken);
+                    if (removed > 0)
+                        logger.LogInformation("Cleaned up {Count} expired demo visitor tenants.", removed);
 
-            try
-            {
-                await ResetAsync(scopeFactory, stoppingToken);
-                logger.LogInformation(
-                    "NeverFade public multi-business demo state reset completed.");
+                    if (DateTime.UtcNow - lastBaselineReset >= interval)
+                    {
+                        await ResetAsync(scopeFactory, stoppingToken);
+                        lastBaselineReset = DateTime.UtcNow;
+                        logger.LogInformation("Reserved demo baseline reset completed.");
+                    }
+                }
+                finally
+                {
+                    DemoSessionLifecycle.CreationLock.Release();
+                }
             }
             catch (OperationCanceledException)
                 when (stoppingToken.IsCancellationRequested)
@@ -68,9 +78,7 @@ internal static class DemoResetScheduler
             }
             catch (Exception exception)
             {
-                logger.LogError(
-                    exception,
-                    "NeverFade public demo reset failed; the next scheduled reset will retry.");
+                logger.LogError(exception, "NeverFade demo maintenance failed; next check retries.");
             }
         }
     }
@@ -84,12 +92,7 @@ internal static class DemoResetScheduler
         var trustedTenantScope = scope.ServiceProvider
             .GetRequiredService<ITrustedTenantExecutionScope>();
 
-        var tenantIds = await db.Tenants
-            .AsNoTracking()
-            .Select(x => x.Id)
-            .ToListAsync(cancellationToken);
-
-        if (!DemoModeDefaults.IsExactDemoTenantSet(tenantIds))
+        if (!await DemoTenantIntegrity.IsIsolatedAsync(db, cancellationToken))
         {
             throw new InvalidOperationException(
                 "Demo reset aborted because the database is not an isolated NeverFade multi-business demo database.");
@@ -108,6 +111,10 @@ internal static class DemoResetScheduler
             db.DemoConversionEvents.RemoveRange(expiredEvents);
             await db.SaveChangesAsync(cancellationToken);
         }
+
+        // Visitor tenants are never globally reset while their session is active.
+        // Expired visitor tenants are deleted separately with all their data.
+        await DemoSessionLifecycle.CleanupExpiredAsync(db, trustedTenantScope, cancellationToken);
 
         foreach (var profile in DemoModeDefaults.Profiles)
         {

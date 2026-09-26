@@ -31,7 +31,7 @@ internal static class DemoSeedData
 
         if (existingTenantIds.Count > 0)
         {
-            if (!DemoModeDefaults.IsExactDemoTenantSet(existingTenantIds))
+            if (!await DemoTenantIntegrity.IsIsolatedAsync(db))
             {
                 throw new InvalidOperationException(
                     "DemoMode requires an isolated database containing only the NeverFade demo tenants.");
@@ -39,6 +39,9 @@ internal static class DemoSeedData
 
             return;
         }
+
+        if (await db.DemoVisitorSessions.AnyAsync())
+            throw new InvalidOperationException("DemoMode requires an isolated, empty demo database before initial seed.");
 
         foreach (var profile in DemoModeDefaults.Profiles)
         {
@@ -54,39 +57,7 @@ internal static class DemoSeedData
         DemoProfile profile,
         CancellationToken cancellationToken = default)
     {
-        var laundryHistory = await db.LaundryWorkOrderStatusHistory
-            .ToListAsync(cancellationToken);
-        db.LaundryWorkOrderStatusHistory.RemoveRange(laundryHistory);
-
-        var laundryItems = await db.LaundryWorkOrderItems
-            .ToListAsync(cancellationToken);
-        db.LaundryWorkOrderItems.RemoveRange(laundryItems);
-
-        var laundryOrders = await db.LaundryWorkOrders
-            .ToListAsync(cancellationToken);
-        db.LaundryWorkOrders.RemoveRange(laundryOrders);
-
-        var restaurantItems = await db.RestaurantOrderItems
-            .ToListAsync(cancellationToken);
-        db.RestaurantOrderItems.RemoveRange(restaurantItems);
-
-        var restaurantOrders = await db.RestaurantOrders
-            .ToListAsync(cancellationToken);
-        db.RestaurantOrders.RemoveRange(restaurantOrders);
-
-        var transactionItems = await db.TransactionItems
-            .ToListAsync(cancellationToken);
-        db.TransactionItems.RemoveRange(transactionItems);
-
-        var stockHistory = await db.StockHistories
-            .ToListAsync(cancellationToken);
-        db.StockHistories.RemoveRange(stockHistory);
-
-        var transactions = await db.Transactions
-            .ToListAsync(cancellationToken);
-        db.Transactions.RemoveRange(transactions);
-
-        await db.SaveChangesAsync(cancellationToken);
+        await RemoveMutableDataAsync(db, cancellationToken);
 
         var baselineStocks = GetProductSeeds(profile.BusinessType)
             .ToDictionary(x => x.Code, x => x.Stock, StringComparer.Ordinal);
@@ -159,7 +130,46 @@ internal static class DemoSeedData
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private static async Task SeedTenantAsync(
+    internal static async Task RemoveMutableDataAsync(
+        AppDbContext db,
+        CancellationToken cancellationToken = default)
+    {
+        var laundryHistory = await db.LaundryWorkOrderStatusHistory
+            .ToListAsync(cancellationToken);
+        db.LaundryWorkOrderStatusHistory.RemoveRange(laundryHistory);
+
+        var laundryItems = await db.LaundryWorkOrderItems
+            .ToListAsync(cancellationToken);
+        db.LaundryWorkOrderItems.RemoveRange(laundryItems);
+
+        var laundryOrders = await db.LaundryWorkOrders
+            .ToListAsync(cancellationToken);
+        db.LaundryWorkOrders.RemoveRange(laundryOrders);
+
+        var restaurantItems = await db.RestaurantOrderItems
+            .ToListAsync(cancellationToken);
+        db.RestaurantOrderItems.RemoveRange(restaurantItems);
+
+        var restaurantOrders = await db.RestaurantOrders
+            .ToListAsync(cancellationToken);
+        db.RestaurantOrders.RemoveRange(restaurantOrders);
+
+        var transactionItems = await db.TransactionItems
+            .ToListAsync(cancellationToken);
+        db.TransactionItems.RemoveRange(transactionItems);
+
+        var stockHistory = await db.StockHistories
+            .ToListAsync(cancellationToken);
+        db.StockHistories.RemoveRange(stockHistory);
+
+        var transactions = await db.Transactions
+            .ToListAsync(cancellationToken);
+        db.Transactions.RemoveRange(transactions);
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    internal static async Task SeedTenantAsync(
         AppDbContext db,
         ITrustedTenantExecutionScope trustedTenantScope,
         DemoProfile profile)

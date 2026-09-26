@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -47,8 +48,7 @@ public sealed class DemoModeTests
             "/api/products");
         Assert.NotNull(products);
 
-        var pants = Assert.Single(
-            products.Where(x => x.Kode == "RTL003"));
+        var pants = Assert.Single(products, x => x.Kode == "RTL003");
         Assert.Equal(24, pants.Stok);
 
         var blockedMutation = await client.PostAsJsonAsync(
@@ -199,7 +199,8 @@ public sealed class DemoModeTests
             "/api/demo/session?businessType=food_beverage",
             content: null);
 
-        Assert.Equal(HttpStatusCode.OK, switchResponse.StatusCode);
+        Assert.True(switchResponse.StatusCode == HttpStatusCode.OK,
+            $"Switch returned {switchResponse.StatusCode}: {await switchResponse.Content.ReadAsStringAsync()}");
 
         var switched = await switchResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
         Assert.NotNull(switched);
@@ -278,6 +279,113 @@ public sealed class DemoModeTests
             mode = "guided"
         });
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PublicDemo_VisitorsHaveSeparateStock_AndCookiePreservesOwnTenant()
+    {
+        await using var factory = new DemoModeFactory();
+        using var visitorA = factory.CreateClient();
+        using var visitorB = factory.CreateClient();
+
+        var responseA = await visitorA.PostAsync(
+            "/api/demo/session?businessType=general_retail", null);
+        var responseB = await visitorB.PostAsync(
+            "/api/demo/session?businessType=general_retail", null);
+        Assert.Equal(HttpStatusCode.OK, responseA.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, responseB.StatusCode);
+
+        var loginA = await responseA.Content.ReadFromJsonAsync<LoginResponseDto>();
+        var loginB = await responseB.Content.ReadFromJsonAsync<LoginResponseDto>();
+        Assert.NotNull(loginA);
+        Assert.NotNull(loginB);
+        var tenantA = new JwtSecurityTokenHandler().ReadJwtToken(loginA.Token)
+            .Claims.Single(x => x.Type == "tenant_id").Value;
+        var tenantB = new JwtSecurityTokenHandler().ReadJwtToken(loginB.Token)
+            .Claims.Single(x => x.Type == "tenant_id").Value;
+        Assert.NotEqual(tenantA, tenantB);
+
+        var cookie = Assert.Single(responseA.Headers.GetValues("Set-Cookie"))
+            .Split(';')[0];
+        Assert.StartsWith("nf_demo_visitor=", cookie);
+        visitorA.DefaultRequestHeaders.Add("Cookie", cookie);
+        visitorA.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", loginA.Token);
+        visitorB.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", loginB.Token);
+
+        var productsA = await visitorA.GetFromJsonAsync<List<ProductDto>>("/api/products");
+        var productsB = await visitorB.GetFromJsonAsync<List<ProductDto>>("/api/products");
+        var waterA = Assert.Single(productsA!, x => x.Kode == "GEN001");
+        var waterB = Assert.Single(productsB!, x => x.Kode == "GEN001");
+        Assert.NotEqual(waterA.Id, waterB.Id);
+        Assert.Equal(80, waterA.Stok);
+        Assert.Equal(80, waterB.Stok);
+
+        var checkout = await visitorA.PostAsJsonAsync("/api/transactions", new CreateTransactionDto
+        {
+            Items = [new CreateTransactionItemDto
+            {
+                Id = waterA.Id, Nama = waterA.Nama, HargaJual = waterA.HargaJual,
+                Qty = 1, Quantity = 1, Subtotal = waterA.HargaJual
+            }],
+            Subtotal = waterA.HargaJual,
+            Total = waterA.HargaJual,
+            MetodePembayaran = "tunai",
+            Dibayar = waterA.HargaJual
+        });
+        Assert.Equal(HttpStatusCode.OK, checkout.StatusCode);
+
+        var afterA = await visitorA.GetFromJsonAsync<ProductDto>($"/api/products/{waterA.Id}");
+        var afterB = await visitorB.GetFromJsonAsync<ProductDto>($"/api/products/{waterB.Id}");
+        Assert.Equal(79, afterA!.Stok);
+        Assert.Equal(80, afterB!.Stok);
+
+        var reenterA = await visitorA.PostAsync(
+            "/api/demo/session?businessType=general_retail", null);
+        Assert.Equal(HttpStatusCode.OK, reenterA.StatusCode);
+        var repeat = await reenterA.Content.ReadFromJsonAsync<LoginResponseDto>();
+        Assert.NotNull(repeat);
+        var repeatTenant = new JwtSecurityTokenHandler().ReadJwtToken(repeat.Token)
+            .Claims.Single(x => x.Type == "tenant_id").Value;
+        Assert.Equal(tenantA, repeatTenant);
+    }
+
+    [Fact]
+    public async Task PublicDemo_ExpiredVisitorTokenIsRejected_AndSessionStartsFresh()
+    {
+        await using var factory = new DemoModeFactory();
+        using var client = factory.CreateClient();
+        var firstResponse = await client.PostAsync(
+            "/api/demo/session?businessType=general_retail", null);
+        var first = await firstResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
+        Assert.NotNull(first);
+        var priorTenant = Guid.Parse(new JwtSecurityTokenHandler().ReadJwtToken(first.Token)
+            .Claims.Single(x => x.Type == "tenant_id").Value);
+        var cookie = Assert.Single(firstResponse.Headers.GetValues("Set-Cookie"))
+            .Split(';')[0];
+        client.DefaultRequestHeaders.Add("Cookie", cookie);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", first.Token);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var session = await db.DemoVisitorSessions.SingleAsync(x => x.TenantId == priorTenant);
+            session.ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+            await db.SaveChangesAsync();
+        }
+
+        var expired = await client.GetAsync("/api/products");
+        Assert.Equal(HttpStatusCode.Unauthorized, expired.StatusCode);
+        var renewedResponse = await client.PostAsync(
+            "/api/demo/session?businessType=general_retail", null);
+        Assert.Equal(HttpStatusCode.OK, renewedResponse.StatusCode);
+        var renewed = await renewedResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
+        Assert.NotNull(renewed);
+        var newTenant = Guid.Parse(new JwtSecurityTokenHandler().ReadJwtToken(renewed.Token)
+            .Claims.Single(x => x.Type == "tenant_id").Value);
+        Assert.NotEqual(priorTenant, newTenant);
     }
 
     [Fact]
