@@ -1,13 +1,52 @@
 using Microsoft.EntityFrameworkCore;
+using NeverfadePos.Api.Auth;
+using NeverfadePos.Api.Common;
+using Microsoft.AspNetCore.Http;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Laporan;
 using NeverfadePos.Api.Entities;
 
 namespace NeverfadePos.Api.Services.Laporan;
 
-public sealed class LaporanService(AppDbContext db)
+public sealed class LaporanService(
+    AppDbContext db, CurrentUser currentUser, IHttpContextAccessor httpContextAccessor)
     : ILaporanService
 {
+    // No header: owner sees tenant aggregate; admin sees only explicitly assigned outlets.
+    // Header: both roles see only the validated selected outlet. Historical records in
+    // disabled outlets remain readable; absent/foreign assignment never grants access.
+    private async Task<Guid[]?> VisibleOutletIdsAsync(CancellationToken cancellationToken)
+    {
+        if (!currentUser.UserId.HasValue || !currentUser.TenantId.HasValue ||
+            currentUser.Role is not ("owner" or "admin"))
+            throw new TenantApiException(StatusCodes.Status403Forbidden,
+                "REPORT_ACCESS_DENIED", "Akses laporan tidak diizinkan.");
+
+        var raw = httpContextAccessor.HttpContext?.Request.Headers["X-Outlet-Id"].ToString();
+        var isOwner = currentUser.Role == "owner";
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            if (isOwner) return null;
+            return await db.UserOutletAssignments.AsNoTracking()
+                .Where(x => x.UserId == currentUser.UserId.Value)
+                .Select(x => x.OutletId).Distinct().ToArrayAsync(cancellationToken);
+        }
+        if (!Guid.TryParse(raw, out var selected) || selected == Guid.Empty)
+            throw new TenantApiException(StatusCodes.Status400BadRequest,
+                "INVALID_OUTLET_ID", "Outlet yang dipilih tidak valid.");
+        var exists = await db.Outlets.AsNoTracking()
+            .AnyAsync(x => x.Id == selected, cancellationToken);
+        if (!exists)
+            throw new TenantApiException(StatusCodes.Status404NotFound,
+                "OUTLET_NOT_FOUND", "Outlet tidak ditemukan.");
+        if (!isOwner && !await db.UserOutletAssignments.AsNoTracking().AnyAsync(
+                x => x.UserId == currentUser.UserId.Value && x.OutletId == selected,
+                cancellationToken))
+            throw new TenantApiException(StatusCodes.Status403Forbidden,
+                "OUTLET_NOT_ASSIGNED", "Anda tidak memiliki akses ke outlet ini.");
+        return [selected];
+    }
+
     private static readonly TimeZoneInfo Wib =
         TimeZoneInfo.FindSystemTimeZoneById(
             OperatingSystem.IsWindows()
@@ -33,10 +72,12 @@ public sealed class LaporanService(AppDbContext db)
     {
         var startUtc = GetStartUtc(period, startDate);
         var endUtc = GetEndUtc(endDate);
+        var visibleOutletIds = await VisibleOutletIdsAsync(cancellationToken);
 
-        var query = db.Transactions
-            .AsNoTracking()
-            .Where(
+        var query = db.Transactions.AsNoTracking();
+        if (visibleOutletIds is not null)
+            query = query.Where(x => x.OutletId.HasValue && visibleOutletIds.Contains(x.OutletId.Value));
+        query = query.Where(
                 x =>
                     x.Status == TransactionStatuses.Paid &&
                     x.CreatedAt >= startUtc &&
@@ -127,9 +168,12 @@ public sealed class LaporanService(AppDbContext db)
                 endWib,
                 Wib);
 
+        var visibleOutletIds = await VisibleOutletIdsAsync(cancellationToken);
+        var transactions = db.Transactions.AsNoTracking();
+        if (visibleOutletIds is not null)
+            transactions = transactions.Where(x => x.OutletId.HasValue && visibleOutletIds.Contains(x.OutletId.Value));
         var raw =
-            await db.Transactions
-                .AsNoTracking()
+            await transactions
                 .Where(
                     x =>
                         x.Status == TransactionStatuses.Paid &&
@@ -206,9 +250,13 @@ public sealed class LaporanService(AppDbContext db)
     {
         var startUtc = GetStartUtc(period, startDate);
         var endUtc = GetEndUtc(endDate);
+        var visibleOutletIds = await VisibleOutletIdsAsync(cancellationToken);
 
-        return await db.TransactionItems
-            .AsNoTracking()
+        var items = db.TransactionItems.AsNoTracking();
+        if (visibleOutletIds is not null)
+            items = items.Where(x => x.Transaction!.OutletId.HasValue &&
+                visibleOutletIds.Contains(x.Transaction.OutletId.Value));
+        return await items
             .Where(
                 x =>
                     x.Transaction!.Status == TransactionStatuses.Paid &&

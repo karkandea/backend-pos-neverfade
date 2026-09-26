@@ -12,6 +12,7 @@ using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Auth;
 using NeverfadePos.Api.DTOs.Tenant;
 using NeverfadePos.Api.DTOs.Outlet;
+using NeverfadePos.Api.DTOs.Laporan;
 using NeverfadePos.Api.Entities;
 using Xunit;
 
@@ -94,6 +95,80 @@ public sealed class TenantContextApiTests
         var response = await client.GetAsync("/api/tenant/context");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reports_FilterAllThreeSurfacesByAssignedOrSelectedOutlet()
+    {
+        await using var factory = new TenantContextFactory();
+        using var owner = factory.CreateClient();
+        using var admin = factory.CreateClient();
+        var ownerLogin = (await (await owner.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        var adminLogin = (await (await admin.PostAsJsonAsync("/api/auth/login",
+            new { username = "admin", password = "admin123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        owner.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerLogin.Token);
+        admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminLogin.Token);
+        var main = Assert.Single((await owner.GetFromJsonAsync<List<OutletDto>>("/api/outlets"))!);
+        var branchResponse = await owner.PostAsJsonAsync("/api/outlets", new
+        { code = "REPORT-BRANCH", name = "Report branch", address = "", phone = "", isDefault = false });
+        Assert.Equal(HttpStatusCode.OK, branchResponse.StatusCode);
+        var branch = (await branchResponse.Content.ReadFromJsonAsync<OutletDto>())!;
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = (await db.Tenants.AsNoTracking().SingleAsync()).Id;
+            using var trusted = scope.ServiceProvider.GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "REPORT_OUTLET_TEST");
+            foreach (var (outlet, amount, name) in new[]
+            {
+                (main.Id, 100m, "MAIN-REPORT"), (branch.Id, 200m, "BRANCH-REPORT")
+            })
+            {
+                var transaction = new Transaction
+                {
+                    TenantId = tenantId, OutletId = outlet, NoTrx = $"TRX-{name}",
+                    Kasir = "QA", Status = TransactionStatuses.Paid,
+                    Total = amount, Subtotal = amount, Dibayar = amount,
+                    CreatedAt = DateTime.UtcNow, Tanggal = DateTime.UtcNow
+                };
+                db.Transactions.Add(transaction);
+                db.TransactionItems.Add(new TransactionItem
+                {
+                    TenantId = tenantId, TransactionId = transaction.Id, ProductId = Guid.NewGuid(),
+                    Nama = name, HargaJual = amount, Qty = 1, Subtotal = amount
+                });
+            }
+            await db.SaveChangesAsync();
+        }
+
+        // Preserve owner aggregate when no outlet header; admin gets assigned outlets only.
+        Assert.Equal(300m, (await owner.GetFromJsonAsync<LaporanSummaryDto>(
+            "/api/laporan/summary"))!.Omzet);
+        Assert.Equal(100m, (await admin.GetFromJsonAsync<LaporanSummaryDto>(
+            "/api/laporan/summary"))!.Omzet);
+        var adminProducts = (await admin.GetFromJsonAsync<List<TopProductDto>>(
+            "/api/laporan/top-products"))!;
+        Assert.Equal("MAIN-REPORT", Assert.Single(adminProducts).Nama);
+        var adminChart = (await admin.GetFromJsonAsync<List<LaporanChartDto>>(
+            "/api/laporan/chart"))!;
+        Assert.Equal(100m, adminChart.Sum(x => x.Total));
+
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", branch.Id.ToString());
+        Assert.Equal(200m, (await owner.GetFromJsonAsync<LaporanSummaryDto>(
+            "/api/laporan/summary"))!.Omzet);
+        Assert.Equal("BRANCH-REPORT", Assert.Single((await owner.GetFromJsonAsync<List<TopProductDto>>(
+            "/api/laporan/top-products"))!).Nama);
+        owner.DefaultRequestHeaders.Remove("X-Outlet-Id");
+        admin.DefaultRequestHeaders.Add("X-Outlet-Id", branch.Id.ToString());
+        foreach (var endpoint in new[] { "/api/laporan/summary", "/api/laporan/chart", "/api/laporan/top-products" })
+            Assert.Equal(HttpStatusCode.Forbidden, (await admin.GetAsync(endpoint)).StatusCode);
+        admin.DefaultRequestHeaders.Remove("X-Outlet-Id");
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", "not-a-guid");
+        Assert.Equal(HttpStatusCode.BadRequest, (await owner.GetAsync("/api/laporan/summary")).StatusCode);
     }
 
     [Fact]
