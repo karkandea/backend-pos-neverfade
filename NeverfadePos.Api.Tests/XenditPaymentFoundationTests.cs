@@ -14,6 +14,7 @@ using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Auth;
 using NeverfadePos.Api.DTOs.Payment;
+using NeverfadePos.Api.DTOs.Outlet;
 using NeverfadePos.Api.DTOs.Product;
 using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
@@ -189,6 +190,69 @@ public sealed class XenditPaymentFoundationTests
             status.ProviderPaymentRequestId);
         Assert.Equal("000201010212TEST-QRIS", status.QrString);
         Assert.NotNull(status.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task PaymentAttention_IsReadOnlyOwnerScopedAndShowsUncertainReference()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var owner = await CreateOwnerClientAsync(factory);
+        var empty = (await owner.GetFromJsonAsync<PaymentAttentionResponseDto>(
+            "/api/payments/attention"))!;
+        Assert.Equal(0, empty.Total);
+        var original = await CreatePaymentAsync(owner);
+        var response = await owner.GetAsync("/api/payments/attention");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        var pending = (await response.Content.ReadFromJsonAsync<PaymentAttentionResponseDto>())!;
+        Assert.Equal(1, pending.Total);
+        var row = Assert.Single(pending.Items);
+        Assert.Equal(original.Id, row.PaymentId);
+        Assert.Equal(original.TransactionId, row.TransactionId);
+        Assert.Equal(original.ProviderReferenceId, row.ProviderReferenceId);
+        Assert.Equal(original.Amount, row.Amount);
+        Assert.Equal("awaiting_provider_confirmation", row.Reason);
+        Assert.Single(factory.Provider.Requests);
+        using var cashier = await CreateTenantClientAsync(factory, "kasir", "kasir123");
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cashier.GetAsync("/api/payments/attention")).StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.Select(x => x.Id).SingleAsync();
+            using var tenantScope = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "s2-owner-payment-triage");
+            var rowToUpdate = await db.Payments.SingleAsync(x => x.Id == original.Id);
+            rowToUpdate.Status = PaymentConstants.StatusCreating;
+            rowToUpdate.ProviderPaymentRequestId = null;
+            await db.SaveChangesAsync();
+        }
+        var unknown = (await owner.GetFromJsonAsync<PaymentAttentionResponseDto>(
+            "/api/payments/attention"))!;
+        Assert.Equal("provider_request_unknown", Assert.Single(unknown.Items).Reason);
+        Assert.Single(factory.Provider.Requests);
+    }
+
+    [Fact]
+    public async Task PaymentAttention_ForeignOutletDoesNotRevealOutstandingPayment()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var owner = await CreateOwnerClientAsync(factory);
+        var payment = await CreatePaymentAsync(owner);
+        var another = await owner.PostAsJsonAsync("/api/outlets", new
+        { code = "S2-PAY-OTHER", name = "Second outlet", address = "QA", phone = "", isDefault = false });
+        Assert.Equal(HttpStatusCode.OK, another.StatusCode);
+        var branch = (await another.Content.ReadFromJsonAsync<OutletDto>())!;
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", branch.Id.ToString());
+        var other = (await owner.GetFromJsonAsync<PaymentAttentionResponseDto>(
+            "/api/payments/attention"))!;
+        Assert.Equal(branch.Id, other.OutletId);
+        Assert.Equal(0, other.Total);
+        Assert.Empty(other.Items);
+        Assert.Single(factory.Provider.Requests);
+        var oldPayment = await owner.GetAsync($"/api/payments/{payment.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, oldPayment.StatusCode);
     }
 
     [Fact]
@@ -511,6 +575,218 @@ public sealed class XenditPaymentFoundationTests
         Assert.Empty(await db.StockHistories
             .Where(x => x.Keterangan.StartsWith("Transaksi"))
             .ToListAsync());
+    }
+
+    [Fact]
+    public async Task ProviderConfirmedExpiry_LeavesNoPendingAttempt_AndLateCaptureStillFinalizes()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var owner = await CreateOwnerClientAsync(factory);
+        var before = await GetProductAsync(owner);
+        var payment = await CreatePaymentAsync(owner, before);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.Where(x => x.Slug == "warung-lumpia-beef")
+                .Select(x => x.Id).SingleAsync();
+            using var tenantScope = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "s2-provider-expiry");
+            var entity = await db.Payments.SingleAsync(x => x.Id == payment.Id);
+            entity.ExpiresAt = DateTime.UtcNow.AddSeconds(-1);
+            await db.SaveChangesAsync();
+        }
+        factory.Provider.ProviderStatus = "EXPIRED";
+        var status = await owner.GetFromJsonAsync<PaymentStatusDto>($"/api/payments/{payment.Id}");
+        Assert.Equal(PaymentConstants.StatusExpired, status!.Status);
+        Assert.Equal("PAYMENT_REQUEST_EXPIRED", status.FailureCode);
+        using var current = await owner.GetAsync("/api/payments/current");
+        Assert.Equal(HttpStatusCode.NoContent, current.StatusCode);
+        var failedSale = await owner.GetFromJsonAsync<TransactionDto>(
+            $"/api/transactions/{payment.TransactionId}");
+        Assert.Equal(TransactionStatuses.Failed, failedSale!.Status);
+        using var webhook = factory.CreateClient();
+        using var capture = await SendWebhookAsync(webhook, CaptureWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, capture.StatusCode);
+        var paid = await owner.GetFromJsonAsync<PaymentStatusDto>($"/api/payments/{payment.Id}");
+        Assert.Equal(PaymentConstants.StatusPaid, paid!.Status);
+        var sale = await owner.GetFromJsonAsync<TransactionDto>(
+            $"/api/transactions/{payment.TransactionId}");
+        Assert.Equal(TransactionStatuses.Paid, sale!.Status);
+        await using var verification = factory.Services.CreateAsyncScope();
+        var verifyDb = verification.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenant = await verifyDb.PaymentRoutes.Where(x => x.PaymentId == payment.Id)
+            .Select(x => x.TenantId).SingleAsync();
+        using var tenantScope2 = verification.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(tenant, "s2-provider-expiry-final");
+        Assert.Single(await verifyDb.PaymentLedgerEntries.Where(x => x.PaymentId == payment.Id).ToListAsync());
+        Assert.Equal(before.Stok - 1,
+            (await verifyDb.Products.SingleAsync(x => x.Id == before.Id)).Stok);
+    }
+
+    [Fact]
+    public async Task DelayedFailureWebhook_AfterPaid_DoesNotDowngradeSaleOrLedger()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var owner = await CreateOwnerClientAsync(factory);
+        var before = await GetProductAsync(owner);
+        var payment = await CreatePaymentAsync(owner, before);
+        using var webhookClient = factory.CreateClient();
+        using var capture = await SendWebhookAsync(webhookClient, CaptureWebhook(payment));
+        using var lateFailure = await SendWebhookAsync(webhookClient, FailureWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, capture.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, lateFailure.StatusCode);
+        var status = await owner.GetFromJsonAsync<PaymentStatusDto>($"/api/payments/{payment.Id}");
+        Assert.Equal(PaymentConstants.StatusPaid, status!.Status);
+        var sale = await owner.GetFromJsonAsync<TransactionDto>($"/api/transactions/{payment.TransactionId}");
+        Assert.Equal(TransactionStatuses.Paid, sale!.Status);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await db.PaymentRoutes.Where(x => x.PaymentId == payment.Id)
+            .Select(x => x.TenantId).SingleAsync();
+        using var tenantScope = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(tenantId, "s2-paid-failure-order-check");
+        Assert.Single(await db.PaymentLedgerEntries.Where(x => x.PaymentId == payment.Id).ToListAsync());
+        var events = await db.PaymentWebhookEvents.Where(x => x.PaymentId == payment.Id).ToListAsync();
+        Assert.Equal(2, events.Count);
+        Assert.Contains(events, x => x.ProcessingStatus == "ignored_paid_terminal");
+        var product = await db.Products.SingleAsync(x => x.Id == before.Id);
+        Assert.Equal(before.Stok - 1, product.Stok);
+        Assert.Single(await db.StockHistories.Where(x => x.Tipe == "transaksi").ToListAsync());
+    }
+
+    [Fact]
+    public async Task SuccessAfterEarlierFailure_RecordsProviderPaidOnce()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var owner = await CreateOwnerClientAsync(factory);
+        var before = await GetProductAsync(owner);
+        var payment = await CreatePaymentAsync(owner, before);
+        using var webhookClient = factory.CreateClient();
+        using var failure = await SendWebhookAsync(webhookClient, FailureWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, failure.StatusCode);
+        using var capture = await SendWebhookAsync(webhookClient, CaptureWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, capture.StatusCode);
+        using var duplicate = await SendWebhookAsync(webhookClient, CaptureWebhook(payment));
+        Assert.Equal(HttpStatusCode.OK, duplicate.StatusCode);
+        var status = await owner.GetFromJsonAsync<PaymentStatusDto>($"/api/payments/{payment.Id}");
+        Assert.Equal(PaymentConstants.StatusPaid, status!.Status);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await db.PaymentRoutes.Where(x => x.PaymentId == payment.Id)
+            .Select(x => x.TenantId).SingleAsync();
+        using var tenantScope = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(tenantId, "s2-failure-paid-order-check");
+        Assert.Single(await db.PaymentLedgerEntries.Where(x => x.PaymentId == payment.Id).ToListAsync());
+        Assert.Equal(2, await db.PaymentWebhookEvents.CountAsync(x => x.PaymentId == payment.Id));
+        Assert.Equal(before.Stok - 1, (await db.Products.SingleAsync(x => x.Id == before.Id)).Stok);
+    }
+
+    [Fact]
+    public async Task AmbiguousCreateReply_KeepsOriginalAttemptAndRecoversFromVerifiedWebhook()
+    {
+        await using var factory = new PaymentApiFactory();
+        factory.Provider.ThrowAfterAccept = true;
+        using var owner = await CreateOwnerClientAsync(factory);
+        var product = await GetProductAsync(owner);
+        var attempt = await owner.PostAsJsonAsync("/api/payments/qris", CreateQrisRequest(product));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, attempt.StatusCode);
+        Assert.Contains("PAYMENT_CREATION_UNCERTAIN", await attempt.Content.ReadAsStringAsync());
+        var current = await owner.GetFromJsonAsync<PaymentStatusDto>("/api/payments/current");
+        Assert.NotNull(current);
+        Assert.Equal(PaymentConstants.StatusCreating, current.Status);
+        Assert.Equal(string.Empty, current.ProviderPaymentRequestId);
+        var secondCharge = await owner.PostAsJsonAsync("/api/payments/qris", CreateQrisRequest(product));
+        Assert.Equal(HttpStatusCode.Conflict, secondCharge.StatusCode);
+        Assert.Single(factory.Provider.Requests);
+
+        using var webhook = factory.CreateClient();
+        var requestId = "pr-" + current.ProviderReferenceId;
+        using var invalidAmount = await SendWebhookAsync(webhook, new
+        {
+            @event = "payment.capture", business_id = "xendit-sandbox-business",
+            created = DateTime.UtcNow,
+            data = new
+            {
+                payment_id = $"py-{current.Id:N}", payment_request_id = requestId,
+                reference_id = current.ProviderReferenceId,
+                request_amount = current.Amount + 1m, status = "SUCCEEDED",
+                channel_code = "QRIS", currency = "IDR"
+            }
+        });
+        Assert.Equal(HttpStatusCode.Conflict, invalidAmount.StatusCode);
+        var stillCreating = await owner.GetFromJsonAsync<PaymentStatusDto>(
+            $"/api/payments/{current.Id}");
+        Assert.Equal(PaymentConstants.StatusCreating, stillCreating!.Status);
+        var callback = new
+        {
+            @event = "payment.capture",
+            business_id = "xendit-sandbox-business",
+            created = DateTime.UtcNow,
+            data = new
+            {
+                payment_id = $"py-{current.Id:N}", payment_request_id = requestId,
+                reference_id = current.ProviderReferenceId,
+                request_amount = current.Amount, status = "SUCCEEDED",
+                channel_code = "QRIS", currency = "IDR"
+            }
+        };
+        using var capture = await SendWebhookAsync(webhook, callback);
+        Assert.Equal(HttpStatusCode.OK, capture.StatusCode);
+        using var replay = await SendWebhookAsync(webhook, callback);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        var paid = await owner.GetFromJsonAsync<PaymentStatusDto>($"/api/payments/{current.Id}");
+        Assert.Equal(PaymentConstants.StatusPaid, paid!.Status);
+        Assert.Equal(requestId, paid.ProviderPaymentRequestId);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await owner.GetAsync("/api/payments/current")).StatusCode);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await db.Tenants.Select(x => x.Id).SingleAsync();
+        using var tenantScope = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(tenantId, "s2-lost-reply-webhook-recovery");
+        Assert.Single(await db.PaymentRoutes.Where(x => x.PaymentId == current.Id).ToListAsync());
+        Assert.Single(await db.PaymentLedgerEntries.Where(x => x.PaymentId == current.Id).ToListAsync());
+        Assert.Single(await db.StockHistories.Where(x => x.Tipe == "transaksi").ToListAsync());
+        Assert.Single(await db.Payments.ToListAsync());
+    }
+
+    [Fact]
+    public async Task WebhookBeforeProviderCreateResponse_NeverRevertsPaidToPending()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var owner = await CreateOwnerClientAsync(factory);
+        var product = await GetProductAsync(owner);
+        factory.Provider.CallbackBeforeCreateResponse = async (referenceId, amount) =>
+        {
+            using var hook = factory.CreateClient();
+            var paymentId = Guid.ParseExact(referenceId[3..], "N");
+            using var callback = await SendWebhookAsync(hook, new
+            {
+                @event = "payment.capture", business_id = "xendit-sandbox-business",
+                created = DateTime.UtcNow,
+                data = new
+                {
+                    payment_id = $"py-{paymentId:N}", payment_request_id = "pr-" + referenceId,
+                    reference_id = referenceId, request_amount = amount,
+                    status = "SUCCEEDED", channel_code = "QRIS", currency = "IDR"
+                }
+            });
+            Assert.Equal(HttpStatusCode.OK, callback.StatusCode);
+        };
+        var response = await owner.PostAsJsonAsync("/api/payments/qris", CreateQrisRequest(product));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var created = (await response.Content.ReadFromJsonAsync<QrisPaymentDto>())!;
+        Assert.Equal(PaymentConstants.StatusPaid, created.Status);
+        var paid = await owner.GetFromJsonAsync<PaymentStatusDto>($"/api/payments/{created.Id}");
+        Assert.Equal(PaymentConstants.StatusPaid, paid!.Status);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await db.Tenants.Select(x => x.Id).SingleAsync();
+        using var tenantScope = scope.ServiceProvider.GetRequiredService<ITrustedTenantExecutionScope>()
+            .Begin(tenantId, "s2-webhook-before-response");
+        Assert.Single(await db.PaymentRoutes.Where(x => x.PaymentId == created.Id).ToListAsync());
+        Assert.Single(await db.PaymentLedgerEntries.Where(x => x.PaymentId == created.Id).ToListAsync());
+        Assert.Single(await db.StockHistories.Where(x => x.Tipe == "transaksi").ToListAsync());
     }
 
     [Fact]
@@ -936,8 +1212,17 @@ public sealed class XenditPaymentFoundationTests
 
         public decimal? LastAmount => Requests.LastOrDefault().Amount;
         public List<string> Cancelled { get; } = new();
+        public string ProviderStatus { get; set; } = "UNKNOWN";
+        public bool ThrowAfterAccept { get; set; }
+        public Func<string, decimal, Task>? CallbackBeforeCreateResponse { get; set; }
 
-        public Task<XenditPaymentRequestResult> CreateQrisAsync(
+        public Task<string> GetPaymentRequestStatusAsync(
+            string paymentRequestId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ProviderStatus);
+
+
+        public async Task<XenditPaymentRequestResult> CreateQrisAsync(
             string referenceId,
             decimal amount,
             string description,
@@ -945,13 +1230,17 @@ public sealed class XenditPaymentFoundationTests
             CancellationToken cancellationToken = default)
         {
             Requests.Add((referenceId, amount));
-            return Task.FromResult(new XenditPaymentRequestResult(
+            if (CallbackBeforeCreateResponse is not null)
+                await CallbackBeforeCreateResponse(referenceId, amount);
+            if (ThrowAfterAccept)
+                throw new HttpRequestException("Provider accepted request but reply timed out.");
+            return new XenditPaymentRequestResult(
                 $"pr-{referenceId}",
                 referenceId,
                 amount,
                 "REQUIRES_ACTION",
                 "000201010212TEST-QRIS",
-                expiresAt));
+                expiresAt);
         }
 
         public Task CancelPaymentRequestAsync(

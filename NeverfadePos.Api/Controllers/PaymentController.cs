@@ -9,6 +9,7 @@ using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Services.Outlet;
 using NeverfadePos.Api.Services.Payment;
+using NeverfadePos.Api.Services.Sales;
 
 namespace NeverfadePos.Api.Controllers;
 
@@ -83,6 +84,59 @@ public sealed class PaymentController(
         return Ok(await paymentService.CancelAsync(paymentId, cancellationToken));
     }
 
+    /// <summary>
+    /// Owner/admin read-only queue for unresolved provider attempts in one
+    /// authorized outlet. The queue never cancels or retries an external charge.
+    /// </summary>
+    [HttpGet("attention")]
+    [Authorize(Roles = "owner,admin")]
+    public async Task<ActionResult<PaymentAttentionResponseDto>> GetAttention(
+        [FromHeader(Name = "X-Outlet-Id")] Guid? selectedOutletId,
+        CancellationToken cancellationToken)
+    {
+        var outlet = await outletService.ResolveAsync(selectedOutletId, cancellationToken);
+        var unresolved = db.Payments.AsNoTracking()
+            .Where(x => x.Transaction != null && x.Transaction.OutletId == outlet.Id &&
+                (x.Status == PaymentConstants.StatusCreating ||
+                 x.Status == PaymentConstants.StatusPending));
+        var total = await unresolved.CountAsync(cancellationToken);
+        var records = await unresolved.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id)
+            .Take(101)
+            .Select(x => new
+            {
+                PaymentId = x.Id, x.TransactionId, x.ProviderReferenceId,
+                x.ProviderPaymentRequestId, x.Status, x.Amount, x.Currency,
+                x.CreatedAt, x.ExpiresAt
+            })
+            .ToListAsync(cancellationToken);
+        var now = DateTime.UtcNow;
+        Response.Headers.CacheControl = "no-store";
+        return Ok(new PaymentAttentionResponseDto
+        {
+            OutletId = outlet.Id,
+            Total = total,
+            HasMore = total > 100,
+            Items = records.Take(100).Select(x => new PaymentAttentionItemDto
+            {
+                PaymentId = x.PaymentId,
+                TransactionId = x.TransactionId,
+                ProviderReferenceId = x.ProviderReferenceId,
+                ProviderPaymentRequestId = x.ProviderPaymentRequestId,
+                Status = x.Status,
+                Reason = x.Status == PaymentConstants.StatusCreating &&
+                    string.IsNullOrWhiteSpace(x.ProviderPaymentRequestId)
+                        ? "provider_request_unknown"
+                        : x.ExpiresAt is { } expiry && expiry <= now
+                            ? "expiry_requires_provider_verification"
+                            : "awaiting_provider_confirmation",
+                Amount = x.Amount,
+                Currency = x.Currency,
+                CreatedAt = x.CreatedAt,
+                ExpiresAt = x.ExpiresAt
+            }).ToList()
+        });
+    }
+
     [HttpGet("current")]
     public async Task<ActionResult<PaymentStatusDto>> GetCurrent(
         [FromHeader(Name = "X-Outlet-Id")] Guid? selectedOutletId,
@@ -136,8 +190,11 @@ public sealed class PaymentController(
                 x.ExpiresAt.Value <= now);
         }
 
-        var candidates = await query.ToListAsync(cancellationToken);
-        var changed = false;
+        // Fetch immutable provider references without tracking; external status
+        // lookups are intentionally outside the database transaction/stock lock.
+        var candidates = await query.AsNoTracking()
+            .Select(x => new { x.Id, x.TenantId, x.ProviderPaymentRequestId })
+            .ToListAsync(cancellationToken);
 
         foreach (var payment in candidates)
         {
@@ -185,22 +242,32 @@ public sealed class PaymentController(
                 continue;
             }
 
-            payment.Status = PaymentConstants.StatusFailed;
-            payment.FailureCode = "PAYMENT_REQUEST_EXPIRED";
-            payment.UpdatedAt = now;
+            // A paid webhook may have finalized while the provider was queried.
+            // All cash and webhook finalizers serialize on this same tenant lock.
+            await using var expiryTransaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(cancellationToken)
+                : null;
+            await TenantStockLock.AcquireAsync(db, payment.TenantId, cancellationToken);
+            var fresh = await db.Payments.Include(x => x.Transaction)
+                .SingleOrDefaultAsync(x => x.Id == payment.Id &&
+                    x.Status == PaymentConstants.StatusPending &&
+                    x.ProviderPaymentRequestId == payment.ProviderPaymentRequestId &&
+                    x.Transaction != null && x.Transaction.OutletId == outletId,
+                    cancellationToken);
+            if (fresh is null || fresh.Transaction?.Status == TransactionStatuses.Paid)
+                continue;
+            if (!forceProviderCheck &&
+                (!fresh.ExpiresAt.HasValue || fresh.ExpiresAt.Value > now))
+                continue;
 
-            if (payment.Transaction is not null &&
-                payment.Transaction.Status == TransactionStatuses.PendingPayment)
-            {
-                payment.Transaction.Status = TransactionStatuses.Failed;
-            }
-
-            changed = true;
-        }
-
-        if (changed)
-        {
+            fresh.Status = PaymentConstants.StatusFailed;
+            fresh.FailureCode = "PAYMENT_REQUEST_EXPIRED";
+            fresh.UpdatedAt = DateTime.UtcNow;
+            if (fresh.Transaction?.Status == TransactionStatuses.PendingPayment)
+                fresh.Transaction.Status = TransactionStatuses.Failed;
             await db.SaveChangesAsync(cancellationToken);
+            if (expiryTransaction is not null)
+                await expiryTransaction.CommitAsync(cancellationToken);
         }
     }
 }
