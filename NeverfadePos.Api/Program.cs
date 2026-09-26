@@ -210,7 +210,7 @@ builder.Services
                     parsedTenantId == Guid.Empty ||
                     !Guid.TryParse(userId, out var parsedUserId) ||
                     parsedUserId == Guid.Empty ||
-                    role is not ("owner" or "admin" or "kasir" or "dapur"))
+                    role is not ("owner" or "admin" or "kasir" or "dapur" or "laundry_operator"))
                 {
                     context.Fail("Invalid tenant identity.");
                     return;

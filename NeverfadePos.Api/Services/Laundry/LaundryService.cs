@@ -19,7 +19,7 @@ public sealed class LaundryService(
         string? status,
         CancellationToken cancellationToken = default)
     {
-        RequireUser();
+        RequireWorkUser();
 
         var normalizedStatus = string.IsNullOrWhiteSpace(status)
             ? null
@@ -62,7 +62,7 @@ public sealed class LaundryService(
         Guid id,
         CancellationToken cancellationToken = default)
     {
-        RequireUser();
+        RequireWorkUser();
 
         var order = await LoadAsync(
             id,
@@ -213,13 +213,19 @@ public sealed class LaundryService(
         UpdateLaundryWorkOrderStatusRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var (tenantId, userId) = RequireUser();
+        var (tenantId, userId) = RequireWorkUser();
         var order = await LoadAsync(
             id,
             tracking: true,
             cancellationToken);
 
         var next = request.Status?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (currentUser.Role == "laundry_operator" &&
+            next is not (LaundryConstants.StatusInProgress or LaundryConstants.StatusReady))
+            throw new TenantApiException(StatusCodes.Status403Forbidden,
+                "LAUNDRY_OPERATOR_STATUS_FORBIDDEN",
+                "Operator hanya dapat memulai pekerjaan atau menandainya siap diambil.");
+
 
         if (!LaundryConstants.Statuses.Contains(next))
         {
@@ -533,6 +539,14 @@ public sealed class LaundryService(
 
     private Guid RequireOutletId() => outletContext.OutletId
         ?? throw new InvalidOperationException("Laundry requires an active outlet scope.");
+
+    private (Guid TenantId, Guid UserId) RequireWorkUser()
+    {
+        if (currentUser.Role == "laundry_operator" &&
+            currentUser.TenantId.HasValue && currentUser.UserId.HasValue)
+            return (currentUser.TenantId.Value, currentUser.UserId.Value);
+        return RequireUser();
+    }
 
     private (Guid TenantId, Guid UserId) RequireUser()
     {

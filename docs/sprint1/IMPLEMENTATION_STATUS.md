@@ -91,9 +91,16 @@ Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d
 - Source gates: backend **171/171 PASS**, frontend build/lint PASS, mocked Sprint 1 outlet/report UX **15/15 PASS across desktop/tablet/mobile**. Separate public browser/manual UAT of this exact report release is **not yet certified**; do not represent the older 33/36 test numbers as this release's browser result.
 - Ongoing external blocker: GitHub Actions jobs cannot start because of account billing lock; local tests are not remote CI sign-off. Neither PR merged.
 
+## Checkpoint 11 — restricted laundry operator foundation (2026-09-26)
+
+- Added `laundry_operator` dedicated role (permission `outlets.read` + business-capability-gated `laundry.work.operate`), assigned outlet checks, revocable JWT, and fail-closed HTTP route gate. The operator accesses only `GET /api/laundry/operator`, `GET /api/laundry/operator/{id}` and `POST /api/laundry/operator/{id}/status`; existing create/order/payment/customer/transaction endpoints remain unavailable.
+- Operator work-order DTO excludes prices, totals, payment status, transaction reference and unnecessary customer phone. Restricted transitions are **received → in_progress → ready**; completion/cancellation and payment remain cashier/owner workflow. Status history and tenant audit retain the individual operator actor.
+- Separate FE `/laundry/antrean` work queue and restricted sidebar/mobile navigation; user-management role option and post-login landing added. Source regression verifies redaction, denied finance/checkout/other outlet, allowed work transitions and JWT invalidation after role change.
+- Backend **172/172 PASS**, frontend build/lint PASS; Sprint 1 mocked desktop/tablet/mobile **18/18 PASS**. No schema migration. This source checkpoint is not yet evidence of public QA browser UAT or full demo reset/onboarding readiness.
+
 ## Mandatory exit gates still OPEN
 
-- Complete role taxonomy (notably laundry and stylist), delegated admin capability and object-level access on **all** remaining relevant tenant/outlet resources. Report summary/chart/top-products now enforce outlet scope in source; other reports, stock and shared-POS flows still require end-to-end audit.
+- Complete role taxonomy (notably stylist/booking and per-station extensions), delegated admin capability and object-level access on **all** remaining relevant tenant/outlet resources. Report summary/chart/top-products now enforce outlet scope in source; other reports, stock and shared-POS flows still require end-to-end audit.
 - Idempotency and explicit demo/live provisioning with timezone and initial five-mode isolated seed are proven; safe repeatable demo reset and complete onboarding/seed contract remain open.
 - Outlet isolation for restaurant tables/orders/kitchen and laundry work orders is now covered by scoped API tests and additive, backfilled migrations. Wider multi-outlet object checks (other modules, reports, shared-POS flows and real PostgreSQL authorization fixtures) still require audit and evidence.
 - Real multi-tenant/multi-outlet PostgreSQL integration, migration backfill/rollback test, FE/BE full browser matrix and role/403 matrix with evidence.

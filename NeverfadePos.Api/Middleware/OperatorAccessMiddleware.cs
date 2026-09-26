@@ -10,9 +10,11 @@ public sealed class OperatorAccessMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)
     {
+        var role = context.RequestServices.GetRequiredService<CurrentUser>().Role;
         if (context.User.Identity?.IsAuthenticated != true ||
-            context.RequestServices.GetRequiredService<CurrentUser>().Role != "dapur" ||
-            IsKitchenRoute(context.Request))
+            (role != "dapur" && role != "laundry_operator") ||
+            (role == "dapur" && IsKitchenRoute(context.Request)) ||
+            (role == "laundry_operator" && IsLaundryRoute(context.Request)))
         {
             await next(context);
             return;
@@ -22,8 +24,29 @@ public sealed class OperatorAccessMiddleware(RequestDelegate next)
         await context.Response.WriteAsJsonAsync(new
         {
             code = "OPERATOR_SCOPE_FORBIDDEN",
-            message = "Akun dapur hanya dapat mengakses antrean dapur dan outlet tugasnya."
+            message = "Akun operator hanya dapat mengakses antrean pekerjaan dan outlet tugasnya."
         });
+    }
+
+    private static bool IsLaundryRoute(HttpRequest request)
+    {
+        var path = request.Path.Value ?? string.Empty;
+        if (HttpMethods.IsGet(request.Method))
+            return path.Equals("/api/auth/me", StringComparison.OrdinalIgnoreCase) ||
+                path.Equals("/api/tenant/context", StringComparison.OrdinalIgnoreCase) ||
+                path.Equals("/api/outlets", StringComparison.OrdinalIgnoreCase) ||
+                path.Equals("/api/laundry/operator", StringComparison.OrdinalIgnoreCase) ||
+                (path.StartsWith("/api/laundry/operator/", StringComparison.OrdinalIgnoreCase) &&
+                 Guid.TryParse(path["/api/laundry/operator/".Length..], out _));
+
+        if (!HttpMethods.IsPost(request.Method)) return false;
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 5 &&
+            segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
+            segments[1].Equals("laundry", StringComparison.OrdinalIgnoreCase) &&
+            segments[2].Equals("operator", StringComparison.OrdinalIgnoreCase) &&
+            Guid.TryParse(segments[3], out _) &&
+            segments[4].Equals("status", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsKitchenRoute(HttpRequest request)

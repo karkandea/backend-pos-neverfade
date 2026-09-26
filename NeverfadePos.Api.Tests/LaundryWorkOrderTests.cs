@@ -458,6 +458,81 @@ public sealed class LaundryWorkOrderTests
     }
 
     [Fact]
+    public async Task LaundryOperator_CanOnlyAdvanceOwnOutletWorkWithoutMoneyFields()
+    {
+        await using var factory = new LaundryApiFactory();
+        await EnableLaundryAsync(factory);
+        var service = await SeedProductAsync(factory, "LDR-S1-OPERATOR",
+            ProductTypes.Service, tracksStock: false, quantityPrecision: 2,
+            stock: 0, unit: "kg", price: 15000m);
+        var customer = await GetSeedCustomerAsync(factory);
+        using var owner = await CreateTenantClientAsync(factory, "owner", "owner123");
+        var created = await owner.PostAsJsonAsync("/api/laundry/work-orders", new
+        {
+            customerId = customer.Id, promisedAt = DateTime.UtcNow.AddHours(6),
+            notes = "Pisahkan warna", items = new[] { new { productId = service.Id, quantity = 2m } }
+        });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var order = (await created.Content.ReadFromJsonAsync<LaundryWorkOrderDto>())!;
+        var staffResponse = await owner.PostAsJsonAsync("/api/users", new
+        { nama = "Laundry QA Operator", username = "qa.laundry.operator", password = "LaundryQa123!", role = "laundry_operator" });
+        Assert.Equal(HttpStatusCode.OK, staffResponse.StatusCode);
+        var staff = (await staffResponse.Content.ReadFromJsonAsync<NeverfadePos.Api.DTOs.User.UserDto>())!;
+        using var operatorClient = await CreateTenantClientAsync(factory, "qa.laundry.operator", "LaundryQa123!");
+        var context = await operatorClient.GetFromJsonAsync<NeverfadePos.Api.DTOs.Tenant.TenantContextDto>(
+            "/api/tenant/context");
+        Assert.Equal("laundry_operator", context!.Role);
+        Assert.Contains("laundry.work.operate", context.EffectivePermissions);
+        Assert.DoesNotContain("pos.sell", context.EffectivePermissions);
+        Assert.DoesNotContain("finance.read", context.EffectivePermissions);
+        var queue = await operatorClient.GetAsync("/api/laundry/operator");
+        Assert.Equal(HttpStatusCode.OK, queue.StatusCode);
+        var raw = await queue.Content.ReadAsStringAsync();
+        foreach (var financialField in new[] { "unitPrice", "subtotal", "total", "paymentStatus", "transactionId", "customerPhone" })
+            Assert.DoesNotContain($"\"{financialField}\"", raw, StringComparison.OrdinalIgnoreCase);
+        var tickets = await queue.Content.ReadFromJsonAsync<List<LaundryOperatorOrderDto>>();
+        var ticket = Assert.Single(tickets!);
+        Assert.Equal(order.Id, ticket.Id);
+        Assert.Equal("Pisahkan warna", ticket.Notes);
+        Assert.Equal(2m, Assert.Single(ticket.Items).Quantity);
+        foreach (var target in new[] { LaundryConstants.StatusCompleted, LaundryConstants.StatusCancelled })
+        {
+            var denied = await operatorClient.PostAsJsonAsync(
+                $"/api/laundry/operator/{order.Id}/status", new { status = target });
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        }
+        var progress = await operatorClient.PostAsJsonAsync(
+            $"/api/laundry/operator/{order.Id}/status", new { status = LaundryConstants.StatusInProgress });
+        Assert.Equal(HttpStatusCode.OK, progress.StatusCode);
+        Assert.Equal(LaundryConstants.StatusInProgress,
+            (await progress.Content.ReadFromJsonAsync<LaundryOperatorOrderDto>())!.Status);
+        var ready = await operatorClient.PostAsJsonAsync(
+            $"/api/laundry/operator/{order.Id}/status", new { status = LaundryConstants.StatusReady });
+        Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+        Assert.Equal(LaundryConstants.StatusReady,
+            (await ready.Content.ReadFromJsonAsync<LaundryOperatorOrderDto>())!.Status);
+        foreach (var path in new[] { "/api/products", "/api/transactions", "/api/laundry/work-orders",
+                     "/api/restaurant/kitchen", "/api/users", "/api/laporan/summary" })
+            Assert.Equal(HttpStatusCode.Forbidden, (await operatorClient.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await operatorClient.PostAsJsonAsync(
+            "/api/laundry/work-orders", new { customerId = customer.Id })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await operatorClient.PostAsJsonAsync(
+            $"/api/laundry/work-orders/{order.Id}/complete-payment", new { transactionId = Guid.NewGuid() })).StatusCode);
+        var branch = await owner.PostAsJsonAsync("/api/outlets", new
+        { code = "LAUNDRY-OPS-B", name = "Laundry other branch", address = "", phone = "", isDefault = false });
+        Assert.Equal(HttpStatusCode.OK, branch.StatusCode);
+        var branchId = (await branch.Content.ReadFromJsonAsync<NeverfadePos.Api.DTOs.Outlet.OutletDto>())!.Id;
+        operatorClient.DefaultRequestHeaders.Add("X-Outlet-Id", branchId.ToString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await operatorClient.GetAsync("/api/laundry/operator")).StatusCode);
+        operatorClient.DefaultRequestHeaders.Remove("X-Outlet-Id");
+        var revoke = await owner.PutAsJsonAsync($"/api/users/{staff.Id}", new
+        { nama = staff.Nama, username = staff.Username, role = "kasir", active = true, password = "" });
+        Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await operatorClient.GetAsync(
+            "/api/tenant/context")).StatusCode);
+    }
+
+    [Fact]
     public async Task Laundry_OutletWorkOrders_AreIsolatedBySelectionAndAssignment()
     {
         await using var factory = new LaundryApiFactory();
