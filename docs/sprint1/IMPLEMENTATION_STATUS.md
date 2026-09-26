@@ -85,6 +85,12 @@ Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d
 - The report UI now exposes an independent `Cakupan outlet` filter: owner `Semua outlet`, admin `Semua outlet tugas`, or one named accessible outlet. All three report requests receive the explicit chosen outlet header; checkout outlet selection is not silently repurposed as a reporting scope.
 - New negative API regression proves two-outlet transaction totals, chart and top products cannot leak to an unassigned admin. Backend **171/171 tests PASS**, FE build/lint PASS and Sprint 1 mocked UI **15/15 PASS across desktop/tablet/mobile**. This report patch is source-verified, not yet promoted to public QA at this checkpoint.
 
+## Checkpoint 10 — report QA promotion (2026-09-26)
+
+- Promoted verified source report authorization and explicit FE filter to the **isolated QA** release `20260926-s1-reports`: backend `a18517c0f5f4b39c6b570387721eb37ed76537f5`, frontend `da7e4cc03665d9474c5d564bdcfbc1ef09e6321a`. The existing additive tenant-mode schema stays in place; no new migration for this report patch. Dedicated QA service `active`, loopback OpenAPI HTTP 200 and Nginx syntax check succeeded. Previous demo QA service/Nginx configs and artifacts retained for application rollback. Production untouched.
+- Source gates: backend **171/171 PASS**, frontend build/lint PASS, mocked Sprint 1 outlet/report UX **15/15 PASS across desktop/tablet/mobile**. Separate public browser/manual UAT of this exact report release is **not yet certified**; do not represent the older 33/36 test numbers as this release's browser result.
+- Ongoing external blocker: GitHub Actions jobs cannot start because of account billing lock; local tests are not remote CI sign-off. Neither PR merged.
+
 ## Mandatory exit gates still OPEN
 
 - Complete role taxonomy (notably laundry and stylist), delegated admin capability and object-level access on **all** remaining relevant tenant/outlet resources. Report summary/chart/top-products now enforce outlet scope in source; other reports, stock and shared-POS flows still require end-to-end audit.
