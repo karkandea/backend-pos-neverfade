@@ -142,6 +142,7 @@ builder.Services.AddScoped<IOutletExecutionScope>(services => services.GetRequir
 builder.Services.AddScoped<TenantContextService>();
 builder.Services.AddScoped<ITenantContextService>(services => services.GetRequiredService<TenantContextService>());
 builder.Services.AddScoped<ITenantCapabilityService>(services => services.GetRequiredService<TenantContextService>());
+builder.Services.AddScoped<NeverfadePos.Api.Services.Onboarding.ITenantOnboardingService, NeverfadePos.Api.Services.Onboarding.TenantOnboardingService>();
 
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -196,22 +197,35 @@ builder.Services
 
         options.Events = new JwtBearerEvents
         {
-            OnTokenValidated = context =>
+            OnTokenValidated = async context =>
             {
                 var principal = context.Principal;
                 var tenantId = principal?.FindFirst("tenant_id")?.Value;
+                var userId = principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ??
+                             principal?.FindFirst("sub")?.Value;
                 var role = principal?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ??
                            principal?.FindFirst("role")?.Value;
 
                 if (principal?.HasClaim("scope", "tenant") != true ||
                     !Guid.TryParse(tenantId, out var parsedTenantId) ||
                     parsedTenantId == Guid.Empty ||
-                    role is not ("owner" or "admin" or "kasir"))
+                    !Guid.TryParse(userId, out var parsedUserId) ||
+                    parsedUserId == Guid.Empty ||
+                    role is not ("owner" or "admin" or "kasir" or "dapur" or "laundry_operator"))
                 {
                     context.Fail("Invalid tenant identity.");
+                    return;
                 }
 
-                return Task.CompletedTask;
+                // A signed JWT is not authorization after suspension, deactivation or role changes.
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var userValid = await db.Users.IgnoreQueryFilters().AsNoTracking().AnyAsync(
+                    x => x.Id == parsedUserId && x.TenantId == parsedTenantId &&
+                         x.Active && x.Role == role,
+                    context.HttpContext.RequestAborted);
+                // Existing TenantStatusMiddleware retains its documented 403 on suspension.
+                if (!userValid)
+                    context.Fail("Tenant user session has been revoked.");
             }
         };
     })
@@ -276,6 +290,7 @@ app.UseHttpsRedirection();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseCors("Default");
 app.UseAuthentication();
+app.UseMiddleware<NeverfadePos.Api.Middleware.OperatorAccessMiddleware>();
 app.UseMiddleware<TenantStatusMiddleware>();
 app.UseMiddleware<SharedPosSessionMiddleware>();
 app.UseAuthorization();

@@ -9,6 +9,7 @@ namespace NeverfadePos.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[RequireOutletScope]
 [Route("api/laundry/work-orders")]
 [RequireCapability(TenantCapabilities.WorkOrders)]
 public sealed class LaundryWorkOrdersController(

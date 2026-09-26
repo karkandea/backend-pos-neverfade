@@ -4,6 +4,7 @@ namespace NeverfadePos.Api.Entities;
 
 public sealed class LaundryWorkOrder : BaseEntity
 {
+    public Guid OutletId { get; set; }
     public Guid CustomerId { get; set; }
     public Guid CreatedByUserId { get; set; }
     public Guid? TransactionId { get; set; }

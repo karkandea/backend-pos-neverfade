@@ -4,6 +4,8 @@ namespace NeverfadePos.Api.Entities;
 
 public sealed class RestaurantTable : BaseEntity
 {
+    public Guid OutletId { get; set; }
+    public Outlet? Outlet { get; set; }
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public int Capacity { get; set; } = 4;

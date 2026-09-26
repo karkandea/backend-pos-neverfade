@@ -6,7 +6,7 @@ using NeverfadePos.Api.Services.Laporan;
 namespace NeverfadePos.Api.Controllers;
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = "owner,admin")]
 [Route("api/laporan")]
 public sealed class LaporanController(
     ILaporanService laporanService)

@@ -27,7 +27,7 @@ public sealed class LaporanPaymentStatusTests
             NewTransaction(tenantId, TransactionStatuses.Failed, "FAILED", 800m));
         await db.SaveChangesAsync();
 
-        var service = new LaporanService(db);
+        var service = CreateReportService(db, tenantId);
         var summary = await service.GetSummaryAsync("harian");
         var chart = await service.GetChartAsync();
         var products = await service.GetTopProductsAsync("harian");
@@ -54,7 +54,7 @@ public sealed class LaporanPaymentStatusTests
             NewTransaction(tenantId, TransactionStatuses.PendingPayment, "PENDING", 900m));
         await db.SaveChangesAsync();
 
-        var service = new LaporanService(db);
+        var service = CreateReportService(db, tenantId);
         var wib = TimeZoneInfo.FindSystemTimeZoneById(
             OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Jakarta");
         var today = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, wib);
@@ -93,7 +93,7 @@ public sealed class LaporanPaymentStatusTests
         db.Transactions.AddRange(included, excluded);
         await db.SaveChangesAsync();
 
-        var service = new LaporanService(db);
+        var service = CreateReportService(db, tenantId);
         var summary = await service.GetSummaryAsync("harian", default, yesterday, today);
         var chart = await service.GetChartAsync("harian", default, yesterday, today);
         var products = await service.GetTopProductsAsync("harian", default, yesterday, today);
@@ -104,6 +104,23 @@ public sealed class LaporanPaymentStatusTests
         var monthly = await service.GetChartAsync("harian", default, today.AddDays(-40), today);
         Assert.InRange(monthly.Count, 2, 3);
         Assert.All(monthly, item => Assert.Equal(7, item.Date.Length));
+    }
+
+    private static LaporanService CreateReportService(AppDbContext db, Guid tenantId)
+    {
+        var accessor = new HttpContextAccessor
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                {
+                    new Claim("tenant_id", tenantId.ToString()),
+                    new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()),
+                    new Claim(ClaimTypes.Role, "owner")
+                }, "Test"))
+            }
+        };
+        return new LaporanService(db, new CurrentUser(accessor), accessor);
     }
 
     private static Transaction NewTransaction(

@@ -234,6 +234,135 @@ public sealed class RestaurantFnbTests
         Assert.Equal("Customer pindah lokasi.", cancelled.CancellationReason);
     }
 
+    [Fact]
+    public async Task DedicatedKitchenOperator_SeesOnlyPriceFreeAssignedTicketsAndCanAdvanceItem()
+    {
+        await using var factory = new RestaurantApiFactory();
+        await EnableFoodBeverageAsync(factory);
+        var product = await SeedProductAsync(factory);
+        using var owner = await CreateTenantClientAsync(factory, "owner", "owner123");
+        var table = await CreateTableAsync(owner, "K1", "Kitchen QA Table");
+        var order = await OpenOrderAsync(owner, table.Id);
+        var added = await owner.PostAsJsonAsync($"/api/restaurant/orders/{order.Id}/items",
+            new { productId = product.Id, qty = 2, note = "No peanuts" });
+        Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+        var withItem = (await added.Content.ReadFromJsonAsync<RestaurantOrderDto>())!;
+        var itemId = Assert.Single(withItem.Items).Id;
+        Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync(
+            $"/api/restaurant/orders/{order.Id}/send-to-kitchen", null)).StatusCode);
+
+        var staffResponse = await owner.PostAsJsonAsync("/api/users", new
+        {
+            nama = "Kitchen QA Operator", username = "qa.kitchen.operator",
+            password = "KitchenQa123!", role = "dapur"
+        });
+        Assert.Equal(HttpStatusCode.OK, staffResponse.StatusCode);
+        var staff = (await staffResponse.Content.ReadFromJsonAsync<NeverfadePos.Api.DTOs.User.UserDto>())!;
+        using var kitchen = await CreateTenantClientAsync(factory,
+            "qa.kitchen.operator", "KitchenQa123!");
+
+        var context = await kitchen.GetFromJsonAsync<NeverfadePos.Api.DTOs.Tenant.TenantContextDto>(
+            "/api/tenant/context");
+        Assert.Equal("dapur", context!.Role);
+        Assert.Contains("restaurant.kitchen.operate", context.EffectivePermissions);
+        Assert.DoesNotContain("pos.sell", context.EffectivePermissions);
+        Assert.DoesNotContain("finance.read", context.EffectivePermissions);
+
+        var tickets = await kitchen.GetAsync("/api/restaurant/kitchen/operator");
+        Assert.Equal(HttpStatusCode.OK, tickets.StatusCode);
+        var rawQueue = await tickets.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("hargaJual", rawQueue, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("subtotal", rawQueue, StringComparison.OrdinalIgnoreCase);
+        var queue = await tickets.Content.ReadFromJsonAsync<List<KitchenOperatorOrderDto>>();
+        Assert.Equal(order.Id, Assert.Single(queue!).OrderId);
+        Assert.Equal("No peanuts", Assert.Single(queue![0].Items).Note);
+
+        var advancing = await kitchen.PostAsJsonAsync(
+            $"/api/restaurant/kitchen/operator/items/{itemId}/status",
+            new { status = RestaurantConstants.KitchenPreparing });
+        Assert.Equal(HttpStatusCode.OK, advancing.StatusCode);
+        Assert.DoesNotContain("hargaJual", await advancing.Content.ReadAsStringAsync(),
+            StringComparison.OrdinalIgnoreCase);
+        var after = await advancing.Content.ReadFromJsonAsync<KitchenOperatorItemDto>();
+        Assert.Equal(RestaurantConstants.KitchenPreparing, after!.KitchenStatus);
+
+        foreach (var path in new[] {
+            "/api/products", "/api/transactions", "/api/restaurant/tables",
+            "/api/restaurant/orders/open", "/api/restaurant/kitchen",
+            "/api/laundry/work-orders", "/api/users", "/api/laporan/summary" })
+            Assert.Equal(HttpStatusCode.Forbidden, (await kitchen.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await kitchen.PostAsJsonAsync(
+            "/api/restaurant/orders", new { tableId = table.Id })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await kitchen.PostAsJsonAsync(
+            $"/api/restaurant/kitchen/items/{itemId}/status", new { status = "ready" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await kitchen.GetAsync("/api/outlets")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await kitchen.GetAsync("/api/auth/me")).StatusCode);
+
+        var branch = await owner.PostAsJsonAsync("/api/outlets", new
+        { code = "K-OTHER", name = "Other kitchen", address = "", phone = "", isDefault = false });
+        Assert.Equal(HttpStatusCode.OK, branch.StatusCode);
+        var branchId = (await branch.Content.ReadFromJsonAsync<NeverfadePos.Api.DTOs.Outlet.OutletDto>())!.Id;
+        kitchen.DefaultRequestHeaders.Add("X-Outlet-Id", branchId.ToString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await kitchen.GetAsync(
+            "/api/restaurant/kitchen/operator")).StatusCode);
+
+        var changeRole = await owner.PutAsJsonAsync($"/api/users/{staff.Id}", new
+        { nama = staff.Nama, username = staff.Username, role = "kasir", active = true, password = "" });
+        Assert.Equal(HttpStatusCode.OK, changeRole.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await kitchen.GetAsync(
+            "/api/tenant/context")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Restaurant_OutletTablesOrdersAndKitchen_AreIsolatedBySelectionAndAssignment()
+    {
+        await using var factory = new RestaurantApiFactory();
+        await EnableFoodBeverageAsync(factory);
+        var product = await SeedProductAsync(factory);
+        using var owner = await CreateTenantClientAsync(factory, "owner", "owner123");
+        using var cashier = await CreateTenantClientAsync(factory, "kasir", "kasir123");
+
+        var mainTable = await CreateTableAsync(owner, "S1-A1", "Main A1");
+        var response = await owner.PostAsJsonAsync("/api/outlets", new
+        {
+            code = "S1-BRANCH", name = "Branch", address = "", phone = "", isDefault = false
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var branchId = (await response.Content.ReadFromJsonAsync<NeverfadePos.Api.DTOs.Outlet.OutletDto>())!.Id;
+        owner.DefaultRequestHeaders.Add("X-Outlet-Id", branchId.ToString());
+        var branchTable = await CreateTableAsync(owner, "S1-A1", "Branch A1");
+        Assert.NotEqual(mainTable.Id, branchTable.Id);
+        var branchOrder = await OpenOrderAsync(owner, branchTable.Id);
+        var add = await owner.PostAsJsonAsync($"/api/restaurant/orders/{branchOrder.Id}/items",
+            new { productId = product.Id, qty = 1, note = "" });
+        Assert.Equal(HttpStatusCode.OK, add.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync(
+            $"/api/restaurant/orders/{branchOrder.Id}/send-to-kitchen", null)).StatusCode);
+        var branchQueue = await owner.GetFromJsonAsync<List<KitchenQueueOrderDto>>("/api/restaurant/kitchen");
+        Assert.Single(branchQueue!);
+        Assert.Equal(branchOrder.Id, branchQueue![0].OrderId);
+        var branchTables = await owner.GetFromJsonAsync<List<RestaurantTableDto>>("/api/restaurant/tables");
+        Assert.Single(branchTables!);
+        Assert.Equal(branchTable.Id, branchTables![0].Id);
+
+        owner.DefaultRequestHeaders.Remove("X-Outlet-Id");
+        var mainTables = await owner.GetFromJsonAsync<List<RestaurantTableDto>>("/api/restaurant/tables");
+        Assert.Single(mainTables!);
+        Assert.Equal(mainTable.Id, mainTables![0].Id);
+        Assert.Empty((await owner.GetFromJsonAsync<List<KitchenQueueOrderDto>>("/api/restaurant/kitchen"))!);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync(
+            $"/api/restaurant/orders/{branchOrder.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await cashier.PostAsJsonAsync(
+            "/api/restaurant/orders", new { tableId = branchTable.Id })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await cashier.GetAsync(
+            $"/api/restaurant/orders/{branchOrder.Id}")).StatusCode);
+        cashier.DefaultRequestHeaders.Add("X-Outlet-Id", branchId.ToString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await cashier.GetAsync(
+            "/api/restaurant/tables")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await cashier.GetAsync(
+            "/api/restaurant/kitchen")).StatusCode);
+    }
+
     private static async Task<RestaurantTableDto> CreateTableAsync(
         HttpClient owner,
         string code,
@@ -364,9 +493,12 @@ public sealed class RestaurantFnbTests
             .Begin(tenantId, "seed-fnb-paid-transaction");
 
         var subtotal = product.HargaJual * qty;
+        var outletId = await db.Outlets.Where(x => x.IsDefault)
+            .Select(x => x.Id).SingleAsync();
         var transaction = new Transaction
         {
             TenantId = tenantId,
+            OutletId = outletId,
             NoTrx = $"TRX-FNB-PAID-{Guid.NewGuid():N}",
             Kasir = "Kasir QA",
             KasirId = kasirId,
@@ -418,9 +550,12 @@ public sealed class RestaurantFnbTests
             .Begin(tenantId, "seed-fnb-pending-transaction");
 
         var subtotal = product.HargaJual * qty;
+        var outletId = await db.Outlets.Where(x => x.IsDefault)
+            .Select(x => x.Id).SingleAsync();
         var transaction = new Transaction
         {
             TenantId = tenantId,
+            OutletId = outletId,
             NoTrx = $"TRX-FNB-PENDING-{Guid.NewGuid():N}",
             Kasir = "Kasir QA",
             KasirId = kasirId,

@@ -50,8 +50,9 @@ internal sealed class PlatformTenantService(
 
     public Task<PlatformTenantDto> CreateAsync(
         CreatePlatformTenantRequestDto request,
-        CancellationToken cancellationToken = default) =>
-        provisioningService.CreateAsync(request, cancellationToken);
+        CancellationToken cancellationToken = default,
+        string? idempotencyKey = null) =>
+        provisioningService.CreateAsync(request, cancellationToken, idempotencyKey);
 
     public async Task<PlatformTenantDto> UpdateBusinessProfileAsync(
         Guid tenantId,

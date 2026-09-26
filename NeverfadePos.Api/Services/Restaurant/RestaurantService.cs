@@ -5,12 +5,14 @@ using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Restaurant;
 using NeverfadePos.Api.Entities;
+using NeverfadePos.Api.Services.Outlet;
 
 namespace NeverfadePos.Api.Services.Restaurant;
 
 public sealed class RestaurantService(
     AppDbContext db,
-    CurrentUser currentUser)
+    CurrentUser currentUser,
+    IOutletExecutionContext outletContext)
     : IRestaurantService
 {
     public async Task<IReadOnlyList<RestaurantTableDto>> GetTablesAsync(
@@ -18,8 +20,10 @@ public sealed class RestaurantService(
     {
         RequireUser();
 
+        var outletId = RequireOutletId();
         var tables = await db.RestaurantTables
             .AsNoTracking()
+            .Where(x => x.OutletId == outletId)
             .OrderBy(x => x.SortOrder)
             .ThenBy(x => x.Code)
             .ToListAsync(cancellationToken);
@@ -27,7 +31,7 @@ public sealed class RestaurantService(
         var openOrders = await db.RestaurantOrders
             .AsNoTracking()
             .Include(x => x.Items)
-            .Where(x => x.Status == RestaurantConstants.OrderOpen)
+            .Where(x => x.Status == RestaurantConstants.OrderOpen && x.Table!.OutletId == outletId)
             .ToListAsync(cancellationToken);
 
         var orderByTable = openOrders
@@ -48,7 +52,7 @@ public sealed class RestaurantService(
         var input = NormalizeTable(request);
 
         if (await db.RestaurantTables.AnyAsync(
-            x => x.Code == input.Code,
+            x => x.OutletId == RequireOutletId() && x.Code == input.Code,
             cancellationToken))
         {
             throw Conflict(
@@ -59,6 +63,7 @@ public sealed class RestaurantService(
         var table = new RestaurantTable
         {
             TenantId = tenantId,
+            OutletId = RequireOutletId(),
             Code = input.Code,
             Name = input.Name,
             Capacity = input.Capacity,
@@ -82,7 +87,7 @@ public sealed class RestaurantService(
         var input = NormalizeTable(request);
 
         var table = await db.RestaurantTables
-            .SingleOrDefaultAsync(x => x.Id == tableId, cancellationToken)
+            .SingleOrDefaultAsync(x => x.Id == tableId && x.OutletId == RequireOutletId(), cancellationToken)
             ?? throw new KeyNotFoundException("Meja tidak ditemukan.");
 
         if (!input.Active)
@@ -102,7 +107,7 @@ public sealed class RestaurantService(
         }
 
         if (await db.RestaurantTables.AnyAsync(
-            x => x.Id != tableId && x.Code == input.Code,
+            x => x.OutletId == RequireOutletId() && x.Id != tableId && x.Code == input.Code,
             cancellationToken))
         {
             throw Conflict(
@@ -130,7 +135,7 @@ public sealed class RestaurantService(
             .AsNoTracking()
             .Include(x => x.Table)
             .Include(x => x.Items)
-            .Where(x => x.Status == RestaurantConstants.OrderOpen)
+            .Where(x => x.Status == RestaurantConstants.OrderOpen && x.Table!.OutletId == RequireOutletId())
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
 
@@ -159,7 +164,7 @@ public sealed class RestaurantService(
 
         var table = await db.RestaurantTables
             .SingleOrDefaultAsync(
-                x => x.Id == request.TableId,
+                x => x.Id == request.TableId && x.OutletId == RequireOutletId(),
                 cancellationToken)
             ?? throw new KeyNotFoundException("Meja tidak ditemukan.");
 
@@ -237,6 +242,7 @@ public sealed class RestaurantService(
             .AnyAsync(
                 x =>
                     x.Id == orderId &&
+                    x.Table!.OutletId == RequireOutletId() &&
                     x.Status == RestaurantConstants.OrderOpen,
                 cancellationToken);
 
@@ -480,7 +486,7 @@ public sealed class RestaurantService(
             .AsNoTracking()
             .Include(x => x.Items)
             .SingleOrDefaultAsync(
-                x => x.Id == request.TransactionId,
+                x => x.Id == request.TransactionId && x.OutletId == RequireOutletId(),
                 cancellationToken)
             ?? throw new KeyNotFoundException("Transaksi tidak ditemukan.");
 
@@ -569,13 +575,13 @@ public sealed class RestaurantService(
     public async Task<IReadOnlyList<KitchenQueueOrderDto>> GetKitchenQueueAsync(
         CancellationToken cancellationToken = default)
     {
-        RequireUser();
+        RequireKitchenUser();
 
         var orders = await db.RestaurantOrders
             .AsNoTracking()
             .Include(x => x.Table)
             .Include(x => x.Items)
-            .Where(x => x.Status == RestaurantConstants.OrderOpen)
+            .Where(x => x.Status == RestaurantConstants.OrderOpen && x.Table!.OutletId == RequireOutletId())
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
 
@@ -610,11 +616,12 @@ public sealed class RestaurantService(
         UpdateKitchenStatusRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        RequireUser();
+        RequireKitchenUser();
 
         var item = await db.RestaurantOrderItems
             .Include(x => x.RestaurantOrder)
-            .SingleOrDefaultAsync(x => x.Id == itemId, cancellationToken)
+            .SingleOrDefaultAsync(x => x.Id == itemId &&
+                x.RestaurantOrder!.Table!.OutletId == RequireOutletId(), cancellationToken)
             ?? throw new KeyNotFoundException("Item dapur tidak ditemukan.");
 
         if (item.RestaurantOrder?.Status != RestaurantConstants.OrderOpen)
@@ -711,11 +718,14 @@ public sealed class RestaurantService(
         var order = await query
             .Include(x => x.Table)
             .Include(x => x.Items)
-            .SingleOrDefaultAsync(x => x.Id == orderId, cancellationToken);
+            .SingleOrDefaultAsync(x => x.Id == orderId && x.Table!.OutletId == RequireOutletId(), cancellationToken);
 
         return order
             ?? throw new KeyNotFoundException("Pesanan meja tidak ditemukan.");
     }
+
+    private Guid RequireOutletId() => outletContext.OutletId
+        ?? throw new InvalidOperationException("Restaurant requires an active outlet scope.");
 
     private (Guid TenantId, Guid UserId) RequireUser()
     {
@@ -727,6 +737,14 @@ public sealed class RestaurantService(
         }
 
         return (currentUser.TenantId.Value, currentUser.UserId.Value);
+    }
+
+    private (Guid TenantId, Guid UserId) RequireKitchenUser()
+    {
+        if (currentUser.Role == "dapur" &&
+            currentUser.TenantId.HasValue && currentUser.UserId.HasValue)
+            return (currentUser.TenantId.Value, currentUser.UserId.Value);
+        return RequireUser();
     }
 
     private (Guid TenantId, Guid UserId) RequireAdmin()

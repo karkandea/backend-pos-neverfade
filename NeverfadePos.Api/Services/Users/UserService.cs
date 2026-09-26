@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Data;
+using NeverfadePos.Api.Common;
 using NeverfadePos.Api.DTOs.User;
 using Npgsql;
 using UserEntity = NeverfadePos.Api.Entities.User;
@@ -12,7 +13,7 @@ public sealed class UserService(
     CurrentUser currentUser)
     : IUserService
 {
-    private static readonly string[] AllowedRoles = { "owner", "admin", "kasir" };
+    private static readonly string[] AllowedRoles = { "owner", "admin", "kasir", "dapur", "laundry_operator" };
 
     public async Task<List<UserDto>> GetAllAsync(CancellationToken cancellationToken = default)
     {
@@ -27,6 +28,8 @@ public sealed class UserService(
         var nama = request.Nama.Trim();
         var username = request.Username.Trim();
         var role = NormalizeRole(request.Role);
+        if (role == "owner" && currentUser.Role != "owner")
+            throw new TenantApiException(403, "OWNER_ROLE_RESTRICTED", "Hanya owner dapat membuat akun owner.");
         if (await db.Users.AnyAsync(x => x.Username == username, cancellationToken))
             throw new InvalidOperationException("Username sudah digunakan.");
 
@@ -40,6 +43,19 @@ public sealed class UserService(
             Active = true
         };
         db.Users.Add(entity);
+        if (role != "owner")
+        {
+            var defaultOutlet = await db.Outlets.Where(x => x.Active)
+                .OrderByDescending(x => x.IsDefault).ThenBy(x => x.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (defaultOutlet is not null)
+                db.UserOutletAssignments.Add(new NeverfadePos.Api.Entities.UserOutletAssignment
+                {
+                    TenantId = currentUser.TenantId.Value,
+                    UserId = entity.Id,
+                    OutletId = defaultOutlet.Id
+                });
+        }
 
         try
         {
@@ -60,6 +76,12 @@ public sealed class UserService(
         var nama = request.Nama.Trim();
         var username = request.Username.Trim();
         var role = NormalizeRole(request.Role);
+        if (entity.Role == "owner" && currentUser.Role != "owner")
+            throw new TenantApiException(403, "OWNER_ACCOUNT_PROTECTED", "Admin tidak dapat mengubah akun owner.");
+        if (role == "owner" && currentUser.Role != "owner")
+            throw new TenantApiException(403, "OWNER_ROLE_RESTRICTED", "Hanya owner dapat menetapkan role owner.");
+        if (entity.Role == "owner" && (role != "owner" || !request.Active))
+            throw new InvalidOperationException("Akun owner tidak dapat dinonaktifkan atau diturunkan rolenya melalui pengelolaan user.");
 
         if (await db.Users.AnyAsync(x => x.Id != id && x.Username == username, cancellationToken))
             throw new InvalidOperationException("Username sudah digunakan.");
@@ -95,6 +117,9 @@ public sealed class UserService(
         var entity = await db.Users.FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
             ?? throw new KeyNotFoundException("User tidak ditemukan.");
 
+        if (entity.Role == "owner")
+            throw new TenantApiException(403, "OWNER_ACCOUNT_PROTECTED", "Akun owner tidak dapat dihapus melalui pengelolaan user.");
+
         var linkedEmployees = await db.Karyawans.Where(x => x.UserId == id).ToListAsync(cancellationToken);
         foreach (var employee in linkedEmployees)
             employee.UserId = null;
@@ -118,7 +143,7 @@ public sealed class UserService(
     {
         var normalized = role.Trim().ToLowerInvariant();
         if (!AllowedRoles.Contains(normalized, StringComparer.Ordinal))
-            throw new InvalidOperationException("Role harus owner, admin, atau kasir.");
+            throw new InvalidOperationException("Role harus owner, admin, kasir, dapur, atau laundry_operator.");
         return normalized;
     }
 

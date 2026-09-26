@@ -133,6 +133,15 @@ public static class SeedData
             Active = true
         });
 
+        db.Outlets.Add(new Outlet
+        {
+            TenantId = tenant.Id,
+            Code = "MAIN",
+            Name = tenantName,
+            IsDefault = true,
+            Active = true
+        });
+
         db.Settings.Add(new Settings
         {
             TenantId = tenant.Id,
@@ -207,6 +216,23 @@ public static class SeedData
                         "kasir123"),
                 Role = "kasir",
                 Active = true
+            });
+
+        var defaultOutlet = new Outlet
+        {
+            TenantId = tenant.Id,
+            Code = "MAIN",
+            Name = tenant.NamaToko,
+            IsDefault = true,
+            Active = true
+        };
+        db.Outlets.Add(defaultOutlet);
+        foreach (var staff in db.Users.Local.Where(x => x.TenantId == tenant.Id && x.Role != "owner").ToArray())
+            db.UserOutletAssignments.Add(new UserOutletAssignment
+            {
+                TenantId = tenant.Id,
+                UserId = staff.Id,
+                OutletId = defaultOutlet.Id
             });
 
         db.Settings.Add(new Settings

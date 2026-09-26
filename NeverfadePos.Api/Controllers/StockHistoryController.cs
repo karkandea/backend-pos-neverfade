@@ -22,6 +22,7 @@ public sealed class StockHistoryController(
             cancellationToken));
     }
 
+    [Authorize(Roles = "owner,admin")]
     [HttpPost]
     public async Task<ActionResult<StockHistoryDto>> Create(
         CreateStockHistoryDto request,

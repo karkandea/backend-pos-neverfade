@@ -13,6 +13,10 @@ public class Tenant
     public string Status { get; set; } = "active";
 
     public string BusinessType { get; set; } = BusinessTypes.GeneralRetail;
+    public string Mode { get; set; } = "live";
+
+    public string TimeZoneId { get; set; } = "Asia/Jakarta";
+
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
