@@ -55,6 +55,15 @@ Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d
 - CI-equivalent fallback executed locally on the branch: backend solution restore and Release build **0 warnings/0 errors**, Release test suite **161/161 passed**; frontend `npm ci`, build, lint and Phase 3 contract browser tests **2/2 passed**. Existing Vite chunk-size advisory remains. Local verification does not mark remote GitHub CI green.
 - All new tests and this evidence remain on the Sprint 1 feature branch; QA running asset/executable SHAs remain those recorded in checkpoint 4. Production has not been deployed or merged.
 
+## Checkpoint 6 — dedicated kitchen operator and QA promotion (2026-09-26)
+
+- New `dapur` role is explicitly accepted by JWT only while the user remains active and has the same role; server permission catalog grants only `outlets.read` and `restaurant.kitchen.operate` when the tenant has `kitchen_queue`. Owner/admin can create and assign the role through existing user/outlet management. Role changes invalidate the old JWT.
+- A deny-by-default operator HTTP gate permits only `GET /api/auth/me`, tenant context, assigned outlet listing, plus dedicated `GET /api/restaurant/kitchen/operator` and `POST /api/restaurant/kitchen/operator/items/{id}/status`. Existing cashier, orders, transaction, catalog, report and platform routes are not made available. Restaurant service accepts this role **only** for kitchen queue/status operations; all original operational routes remain unchanged.
+- Dedicated kitchen response DTO intentionally excludes selling price, subtotal, transaction/payment fields and customer details. The original kitchen route remains the existing contract for owner/admin/cashier; dedicated operator route uses server-validated tenant/outlet scope and capability. Frontend lands on `/dapur`, renders restricted nav and calls operator endpoints only.
+- Backend Release build **0 warnings/0 errors**, full tests **162/162 PASS**; frontend build/lint PASS; mocked Sprint 1 FE scenarios **12/12 PASS** across desktop/tablet/mobile. Backend negative test includes hidden financial fields, denied direct endpoints and wrong outlet, allowed kitchen status transition and old JWT revocation.
+- Promoted verified QA-only release to `20260926-s1-kitchen`, backend SHA `c8044242bb76b1adbcbc9c1d8085e5b0438f340b`, frontend SHA `4e7124c00cefea20e33c9814591897e2c9237e7d`. Previous QA service/Nginx configs and release retained for rollback. No schema migration was necessary for the new role. QA operator fixture is explicitly separate from merchant production.
+- Public isolated HTTPS browser smoke re-run **36/36 PASS** across desktop/tablet/mobile, including dedicated kitchen operator sign-in and denied access. This is still a QA preview, not sign-off of all merchant/operator flows. The remote GitHub Actions billing lock and other open gates remain unchanged.
+
 ## Mandatory exit gates still OPEN
 
 - Complete role taxonomy/restricted operators, delegated admin capability and object-level access on **all** relevant tenant/outlet resources, including reports, payment, restaurant and laundry records.
