@@ -47,6 +47,14 @@ Baseline at start (2026-09-25): backend `4e4c3b1d538089e073e56fcb4bf09360cb0835d
 - Isolated live smoke through public HTTPS: **9 passed, 0 failed** on Desktop Chromium: demo owner/admin/cashier, five additional category owner accounts (food/beverage, fashion, laundry, salon, barbershop), and real restaurant table→order→send-to-kitchen→queue with cleanup. Initial QA-entry Content-Type issue was fixed and the complete suite rerun green. The five category accounts use manually created *QA-only fixtures*, not the yet-to-be-implemented official demo provisioning contract.
 - QA smoke proves the named paths only; remaining mobile/tablet live matrix, full RBAC/UAT/security/performance gates and real concurrent PostgreSQL idempotency proof remain open. Do not merge or deploy production based on this preview.
 
+## Checkpoint 5 — public PostgreSQL authorization matrix and CI fallback (2026-09-26)
+
+- QA fixture creates a second Restaurant outlet and Fashion outlet, with separate owner and a default-outlet-only Restaurant cashier. Restaurant permits the same `A1` table code in each outlet; cashier GET for unassigned branch returns **403**. Fashion owner access with a Restaurant outlet ID returns **404** instead of crossing tenants.
+- The **live public HTTPS** isolated smoke suite: **33 passed, 0 failed** across Desktop, Tablet and Mobile Chromium (11 cases × 3). Includes tenant category routing, real kitchen queue send and cleanup, intra-tenant role/outlet assignment, and cross-tenant outlet denial. These are limited path checks rather than full business UAT.
+- Both GitHub draft PRs exist (backend #14, frontend #18). GitHub Actions jobs **did not start**: GitHub check annotations explicitly state the account is locked due to a billing issue. These check failures are external infrastructure blockers, not executed failing tests; CI required gate remains open.
+- CI-equivalent fallback executed locally on the branch: backend solution restore and Release build **0 warnings/0 errors**, Release test suite **161/161 passed**; frontend `npm ci`, build, lint and Phase 3 contract browser tests **2/2 passed**. Existing Vite chunk-size advisory remains. Local verification does not mark remote GitHub CI green.
+- All new tests and this evidence remain on the Sprint 1 feature branch; QA running asset/executable SHAs remain those recorded in checkpoint 4. Production has not been deployed or merged.
+
 ## Mandatory exit gates still OPEN
 
 - Complete role taxonomy/restricted operators, delegated admin capability and object-level access on **all** relevant tenant/outlet resources, including reports, payment, restaurant and laundry records.
