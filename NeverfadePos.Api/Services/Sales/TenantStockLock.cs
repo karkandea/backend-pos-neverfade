@@ -5,9 +5,10 @@ using NeverfadePos.Api.Data;
 namespace NeverfadePos.Api.Services.Sales;
 
 /// <summary>
-/// PostgreSQL transaction-scoped tenant sale lock. Both legacy cash and v2 cash
-/// writers use the same advisory key before resolving stock or generating a sale
-/// number. The shared QRIS-paid finalizer must join this protocol in S2 before GA.
+/// PostgreSQL transaction-scoped tenant sale lock. Legacy cash, v2 cash,
+/// and authenticated QRIS-paid finalization use the same advisory key before
+/// writing stock. Real concurrent PostgreSQL cash-vs-QRIS execution remains a
+/// separate mandatory release gate; common source calls do not prove it passed.
 /// </summary>
 internal static class TenantStockLock
 {
