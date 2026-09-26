@@ -48,6 +48,7 @@ public class AppDbContext : DbContext
     public DbSet<SharedPosSession> SharedPosSessions => Set<SharedPosSession>();
     public DbSet<TenantAuditEvent> TenantAuditEvents => Set<TenantAuditEvent>();
     public DbSet<StockHistory> StockHistories => Set<StockHistory>();
+    public DbSet<SaleQuote> SaleQuotes => Set<SaleQuote>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<TransactionItem> TransactionItems => Set<TransactionItem>();
     public DbSet<Payment> Payments => Set<Payment>();

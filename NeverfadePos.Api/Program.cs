@@ -165,6 +165,7 @@ builder.Services.AddScoped<IEmployeeSharedAccessService, EmployeeSharedAccessSer
 builder.Services.AddScoped<ISharedPosService, SharedPosService>();
 builder.Services.AddScoped<ILaporanService, LaporanService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
+builder.Services.AddScoped<NeverfadePos.Api.Services.Sales.ISaleQuoteService, NeverfadePos.Api.Services.Sales.SaleQuoteService>();
 builder.Services.AddScoped<IWhatsAppSenderResolver, WhatsAppSenderResolver>();
 builder.Services.AddScoped<IWhatsAppReceiptService, WhatsAppReceiptService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
