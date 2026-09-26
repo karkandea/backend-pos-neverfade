@@ -28,6 +28,7 @@ public static class RolePermissionCatalog
             "owner" => [..Manager, "finance.read", "finance.manage", "tenant.manage"],
             "admin" => Manager,
             "kasir" => Cashier,
+            "dapur" => ["outlets.read", "restaurant.kitchen.operate"],
             _ => Array.Empty<string>()
         };
 

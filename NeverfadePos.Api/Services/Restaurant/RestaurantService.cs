@@ -575,7 +575,7 @@ public sealed class RestaurantService(
     public async Task<IReadOnlyList<KitchenQueueOrderDto>> GetKitchenQueueAsync(
         CancellationToken cancellationToken = default)
     {
-        RequireUser();
+        RequireKitchenUser();
 
         var orders = await db.RestaurantOrders
             .AsNoTracking()
@@ -616,7 +616,7 @@ public sealed class RestaurantService(
         UpdateKitchenStatusRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        RequireUser();
+        RequireKitchenUser();
 
         var item = await db.RestaurantOrderItems
             .Include(x => x.RestaurantOrder)
@@ -737,6 +737,14 @@ public sealed class RestaurantService(
         }
 
         return (currentUser.TenantId.Value, currentUser.UserId.Value);
+    }
+
+    private (Guid TenantId, Guid UserId) RequireKitchenUser()
+    {
+        if (currentUser.Role == "dapur" &&
+            currentUser.TenantId.HasValue && currentUser.UserId.HasValue)
+            return (currentUser.TenantId.Value, currentUser.UserId.Value);
+        return RequireUser();
     }
 
     private (Guid TenantId, Guid UserId) RequireAdmin()

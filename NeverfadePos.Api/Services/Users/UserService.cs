@@ -13,7 +13,7 @@ public sealed class UserService(
     CurrentUser currentUser)
     : IUserService
 {
-    private static readonly string[] AllowedRoles = { "owner", "admin", "kasir" };
+    private static readonly string[] AllowedRoles = { "owner", "admin", "kasir", "dapur" };
 
     public async Task<List<UserDto>> GetAllAsync(CancellationToken cancellationToken = default)
     {
@@ -143,7 +143,7 @@ public sealed class UserService(
     {
         var normalized = role.Trim().ToLowerInvariant();
         if (!AllowedRoles.Contains(normalized, StringComparer.Ordinal))
-            throw new InvalidOperationException("Role harus owner, admin, atau kasir.");
+            throw new InvalidOperationException("Role harus owner, admin, kasir, atau dapur.");
         return normalized;
     }
 

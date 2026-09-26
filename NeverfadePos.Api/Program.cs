@@ -210,7 +210,7 @@ builder.Services
                     parsedTenantId == Guid.Empty ||
                     !Guid.TryParse(userId, out var parsedUserId) ||
                     parsedUserId == Guid.Empty ||
-                    role is not ("owner" or "admin" or "kasir"))
+                    role is not ("owner" or "admin" or "kasir" or "dapur"))
                 {
                     context.Fail("Invalid tenant identity.");
                     return;
@@ -289,6 +289,7 @@ app.UseHttpsRedirection();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseCors("Default");
 app.UseAuthentication();
+app.UseMiddleware<NeverfadePos.Api.Middleware.OperatorAccessMiddleware>();
 app.UseMiddleware<TenantStatusMiddleware>();
 app.UseMiddleware<SharedPosSessionMiddleware>();
 app.UseAuthorization();
