@@ -43,6 +43,18 @@ internal static class DemoResetScheduler
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            // Initial reset is awaited during application bootstrap. Do not
+            // race the first user requests with a second background reset.
+            try
+            {
+                await Task.Delay(interval, stoppingToken);
+            }
+            catch (OperationCanceledException)
+                when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             try
             {
                 await ResetAsync(scopeFactory, stoppingToken);
@@ -59,16 +71,6 @@ internal static class DemoResetScheduler
                 logger.LogError(
                     exception,
                     "NeverFade public demo reset failed; the next scheduled reset will retry.");
-            }
-
-            try
-            {
-                await Task.Delay(interval, stoppingToken);
-            }
-            catch (OperationCanceledException)
-                when (stoppingToken.IsCancellationRequested)
-            {
-                return;
             }
         }
     }
@@ -91,6 +93,20 @@ internal static class DemoResetScheduler
         {
             throw new InvalidOperationException(
                 "Demo reset aborted because the database is not an isolated NeverFade multi-business demo database.");
+        }
+
+        // Analytics intentionally survives the three-hour demo data reset.
+        // Delete old anonymous rows in small batches to bound storage without
+        // retaining personal data or blocking live demo sessions.
+        var expiredEvents = await db.DemoConversionEvents
+            .Where(x => x.CreatedAt < DateTime.UtcNow.AddDays(-90))
+            .OrderBy(x => x.CreatedAt)
+            .Take(500)
+            .ToListAsync(cancellationToken);
+        if (expiredEvents.Count > 0)
+        {
+            db.DemoConversionEvents.RemoveRange(expiredEvents);
+            await db.SaveChangesAsync(cancellationToken);
         }
 
         foreach (var profile in DemoModeDefaults.Profiles)

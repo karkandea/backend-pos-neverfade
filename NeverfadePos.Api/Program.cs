@@ -1,3 +1,5 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using Scalar.AspNetCore;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -68,6 +70,21 @@ var allowedOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? "")
 
 if (!builder.Environment.IsDevelopment() && allowedOrigins.Length == 0)
     throw new InvalidOperationException("Cors:AllowedOrigins missing in production.");
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("demo-events", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 300,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+});
 
 builder.Services.AddControllers();
 
@@ -249,6 +266,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseCors("Default");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<DemoSafetyMiddleware>();
 app.UseMiddleware<TenantStatusMiddleware>();
@@ -256,6 +274,14 @@ app.UseMiddleware<SharedPosSessionMiddleware>();
 app.UseAuthorization();
 
 await NeverfadePos.Api.Data.Seed.SeedData.InitializeAsync(app.Services, app.Configuration, app.Environment);
+
+if (app.Configuration.GetValue<bool>("DemoMode:Enabled"))
+{
+    // Public traffic must not observe half-reset tables, orders, or stock.
+    await DemoResetScheduler.ResetAsync(
+        app.Services.GetRequiredService<IServiceScopeFactory>(),
+        app.Lifetime.ApplicationStopping);
+}
 
 DemoResetScheduler.Start(
     app.Services.GetRequiredService<IServiceScopeFactory>(),

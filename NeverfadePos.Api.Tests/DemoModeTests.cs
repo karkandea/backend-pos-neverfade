@@ -216,6 +216,71 @@ public sealed class DemoModeTests
     }
 
     [Fact]
+    public async Task PublicDemo_RecordsAllowlistedAnonymousConversionEvents()
+    {
+        await using var factory = new DemoModeFactory();
+        using var client = factory.CreateClient();
+        var sessionId = Guid.NewGuid();
+
+        var response = await client.PostAsJsonAsync("/api/demo/events", new
+        {
+            sessionId,
+            businessType = "food_beverage",
+            eventName = "category_selected"
+        });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var recorded = await db.DemoConversionEvents.AsNoTracking()
+            .SingleAsync(x => x.SessionId == sessionId);
+
+        Assert.Equal("food_beverage", recorded.BusinessType);
+        Assert.Equal("category_selected", recorded.EventName);
+        Assert.Null(recorded.Mode);
+    }
+
+    [Fact]
+    public async Task PublicDemo_RejectsArbitraryTelemetryPayloads()
+    {
+        await using var factory = new DemoModeFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/demo/events", new
+        {
+            sessionId = Guid.NewGuid(),
+            businessType = "food_beverage",
+            eventName = "contact_form_data",
+            step = "my-phone-number"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PublicDemo_AllowsEventAfterAuthenticatedSwitch()
+    {
+        await using var factory = new DemoModeFactory();
+        using var client = factory.CreateClient();
+        var loginResponse = await client.PostAsync(
+            "/api/demo/session?businessType=laundry", content: null);
+        var login = await loginResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
+        Assert.NotNull(login);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.Token);
+
+        var response = await client.PostAsJsonAsync("/api/demo/events", new
+        {
+            sessionId = Guid.NewGuid(),
+            businessType = "laundry",
+            eventName = "demo_started",
+            mode = "guided"
+        });
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+    }
+
+    [Fact]
     public async Task PublicDemo_RejectsUnknownBusinessType()
     {
         await using var factory = new DemoModeFactory();

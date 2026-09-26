@@ -53,6 +53,14 @@ public sealed class DemoSafetyMiddleware
     {
         if (HttpMethods.IsPost(request.Method) &&
             request.Path.Equals(
+                "/api/demo/events",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (HttpMethods.IsPost(request.Method) &&
+            request.Path.Equals(
                 "/api/demo/session",
                 StringComparison.OrdinalIgnoreCase))
         {

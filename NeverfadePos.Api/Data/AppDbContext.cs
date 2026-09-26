@@ -1,3 +1,4 @@
+using NeverfadePos.Api.DemoMode;
 using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Common;
@@ -17,6 +18,7 @@ public class AppDbContext : DbContext
         _tenantExecutionContext = tenantExecutionContext;
     }
 
+    public DbSet<DemoConversionEvent> DemoConversionEvents => Set<DemoConversionEvent>();
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<PlatformAuditEvent> PlatformAuditEvents => Set<PlatformAuditEvent>();
