@@ -1,0 +1,125 @@
+name: Endgame v2 Backend Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: neverfade_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: neverfade_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d neverfade_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=neverfade_ci;Username=postgres;Password=neverfade_ci
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore NeverfadePos.slnx
+
+      - name: Scan committed secrets
+        run: python3 qa/scan-secrets.py
+
+      - name: Verify staging fail-closed policy
+        run: python3 qa/verify-staging-policy.py qa/staging-policy.example.env
+
+      - name: Scan NuGet vulnerabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet list NeverfadePos.slnx package --vulnerable --include-transitive | tee /tmp/nuget-vulnerabilities.txt
+          if grep -q "has the following vulnerable packages" /tmp/nuget-vulnerabilities.txt; then
+            echo "Vulnerable NuGet package detected."
+            exit 1
+          fi
+
+      - name: Build
+        run: dotnet build NeverfadePos.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test NeverfadePos.slnx --configuration Release --no-build --logger "console;verbosity=normal"
+
+      - name: Install EF migration tool
+        run: dotnet tool install --global dotnet-ef --version 10.0.9
+
+      - name: Rehearse migrations on disposable PostgreSQL
+        shell: bash
+        env:
+          PGPASSWORD: neverfade_ci
+        run: |
+          set -euo pipefail
+          dotnet-ef database update --project NeverfadePos.Api/NeverfadePos.Api.csproj --startup-project NeverfadePos.Api/NeverfadePos.Api.csproj --configuration Release --no-build
+          first_count="$(psql -h 127.0.0.1 -U postgres -d neverfade_ci -Atc 'SELECT COUNT(*) FROM "__EFMigrationsHistory";')"
+          first_latest="$(psql -h 127.0.0.1 -U postgres -d neverfade_ci -Atc 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1;')"
+          dotnet-ef database update --project NeverfadePos.Api/NeverfadePos.Api.csproj --startup-project NeverfadePos.Api/NeverfadePos.Api.csproj --configuration Release --no-build
+          second_count="$(psql -h 127.0.0.1 -U postgres -d neverfade_ci -Atc 'SELECT COUNT(*) FROM "__EFMigrationsHistory";')"
+          second_latest="$(psql -h 127.0.0.1 -U postgres -d neverfade_ci -Atc 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1;')"
+          test "$first_count" = "$second_count"
+          test "$first_latest" = "$second_latest"
+          echo "Migration gate PASS: count=$second_count latest=$second_latest"
+
+      - name: Publish immutable candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf artifact
+          mkdir -p artifact/backend
+          dotnet publish NeverfadePos.Api/NeverfadePos.Api.csproj --configuration Release --no-restore --output artifact/backend
+          tar -C artifact -czf artifact/neverfade-backend-\${GITHUB_SHA}.tar.gz backend
+          sha256sum artifact/neverfade-backend-\${GITHUB_SHA}.tar.gz > artifact/SHA256SUMS
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          payload = {
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "sha": os.environ["GITHUB_SHA"],
+              "runId": os.environ["GITHUB_RUN_ID"],
+              "runAttempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "generatedAt": datetime.now(timezone.utc).isoformat(),
+          }
+          with open("artifact/deployment-record.json", "w") as f:
+              json.dump(payload, f, indent=2)
+          PY
+
+      - name: Upload candidate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: neverfade-backend-\${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            artifact/neverfade-backend-*.tar.gz
+            artifact/SHA256SUMS
+            artifact/deployment-record.json
+
+      - name: Attest release candidate provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-path: artifact/neverfade-backend-*.tar.gz
