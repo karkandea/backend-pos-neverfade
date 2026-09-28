@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force_gate_failure:
+        description: "Intentionally fail verify to prove promotion stays blocked"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -33,6 +39,12 @@ jobs:
       ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=neverfade_ci;Username=postgres;Password=neverfade_ci
 
     steps:
+      - name: Controlled fail-closed proof
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.force_gate_failure }}
+        run: |
+          echo "Intentional verification failure requested; promotion must remain blocked."
+          exit 42
+
       - name: Checkout exact candidate
         uses: actions/checkout@v4
 
@@ -123,3 +135,55 @@ jobs:
         uses: actions/attest@v4
         with:
           subject-path: artifact/neverfade-backend-*.tar.gz
+
+  promotion_eligibility:
+    name: promotion eligibility
+    needs: verify
+    if: ${{ needs.verify.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download verified candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: neverfade-backend-${{ github.sha }}
+          path: candidate
+
+      - name: Verify candidate checksum and deployment SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          sha256sum -c SHA256SUMS
+          python3 - <<'PY'
+          import json, os
+          record = json.load(open("deployment-record.json"))
+          expected = os.environ["GITHUB_SHA"]
+          actual = record.get("sha")
+          if actual != expected:
+              raise SystemExit(f"deployment-record SHA mismatch: {actual} != {expected}")
+          PY
+
+      - name: Record promotion eligibility
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          payload = {
+              "eligible": True,
+              "sha": os.environ["GITHUB_SHA"],
+              "runId": os.environ["GITHUB_RUN_ID"],
+              "verifiedJob": "verify",
+              "generatedAt": datetime.now(timezone.utc).isoformat(),
+          }
+          with open("promotion-eligibility.json", "w") as f:
+              json.dump(payload, f, indent=2)
+          PY
+
+      - name: Upload promotion eligibility evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: promotion-eligibility-${{ github.sha }}
+          if-no-files-found: error
+          path: promotion-eligibility.json
