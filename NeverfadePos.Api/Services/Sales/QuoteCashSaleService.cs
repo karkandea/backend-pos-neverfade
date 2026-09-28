@@ -146,13 +146,15 @@ public sealed class QuoteCashSaleService(
             .GroupBy(x => x.Product.Id))
         {
             if (byProduct.Sum(x => ProductQuantityRules.ToStockUnits(x.Product, x.Quantity)) >
-                byProduct.First().Product.Stok)
-                throw Invalid(409, "QUOTE_STALE_STOCK", "Stok gabungan tidak mencukupi.");
+                byProduct.First().AvailableStock)
+                throw Invalid(409, "QUOTE_STALE_STOCK",
+                    "Stok gabungan di outlet aktif tidak mencukupi.");
             foreach (var variant in byProduct.Where(x => x.Variant is not null)
                 .GroupBy(x => x.Variant!.Id))
                 if (variant.Sum(x => ProductQuantityRules.ToStockUnits(x.Product, x.Quantity)) >
-                    variant.First().Variant!.Stok)
-                    throw Invalid(409, "QUOTE_STALE_STOCK", "Stok varian gabungan tidak mencukupi.");
+                    variant.First().VariantAvailableStock.GetValueOrDefault())
+                    throw Invalid(409, "QUOTE_STALE_STOCK",
+                        "Stok varian gabungan di outlet aktif tidak mencukupi.");
         }
         var currentTaxRate = await db.Settings.AsNoTracking()
             .Select(x => x.ShowTax ? x.DefaultTax : 0m)
