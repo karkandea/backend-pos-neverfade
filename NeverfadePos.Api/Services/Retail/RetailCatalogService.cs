@@ -4,14 +4,15 @@ using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Retail;
 using NeverfadePos.Api.Entities;
-using StockHistoryEntity = NeverfadePos.Api.Entities.StockHistory;
+using NeverfadePos.Api.Services.Stock;
 using ProductEntity = NeverfadePos.Api.Entities.Product;
 
 namespace NeverfadePos.Api.Services.Retail;
 
 public sealed class RetailCatalogService(
     AppDbContext db,
-    CurrentUser currentUser)
+    CurrentUser currentUser,
+    IStockBalanceService stockBalances)
     : IRetailCatalogService
 {
     private Guid TenantId => currentUser.TenantId
@@ -49,11 +50,17 @@ public sealed class RetailCatalogService(
             .ToListAsync(cancellationToken);
 
         var levels = await GetPriceLevelsAsync(cancellationToken);
+        var productStocks = await stockBalances.GetProductAvailableUnitsAsync(
+            products.Select(x => x.Id).ToArray(), cancellationToken);
+        var variantStocks = await stockBalances.GetVariantAvailableUnitsAsync(
+            products.SelectMany(x => x.Variants).Select(x => x.Id).ToArray(),
+            cancellationToken);
 
         return new RetailCatalogDto
         {
             PriceLevels = levels,
-            Products = products.Select(MapCatalogProduct).ToList()
+            Products = products.Select(x => MapCatalogProduct(
+                x, productStocks.GetValueOrDefault(x.Id), variantStocks)).ToList()
         };
     }
 
@@ -62,12 +69,14 @@ public sealed class RetailCatalogService(
         CancellationToken cancellationToken = default)
     {
         await RequireProductAsync(productId, cancellationToken);
-        return await db.ProductVariants
-            .AsNoTracking()
+        var variants = await db.ProductVariants.AsNoTracking()
             .Where(x => x.ProductId == productId)
             .OrderBy(x => x.Label)
-            .Select(x => MapVariant(x))
             .ToListAsync(cancellationToken);
+        var stocks = await stockBalances.GetVariantAvailableUnitsAsync(
+            variants.Select(x => x.Id).ToArray(), cancellationToken);
+        return variants.Select(x => MapVariant(
+            x, stocks.GetValueOrDefault(x.Id))).ToList();
     }
 
     public async Task<ProductVariantDto> CreateVariantAsync(
@@ -105,31 +114,21 @@ public sealed class RetailCatalogService(
             Option3Value = normalized.Option3Value,
             HargaModal = request.HargaModal,
             HargaJual = request.HargaJual,
-            Stok = request.Stok,
+            Stok = 0,
             Active = true
         };
 
-        product.Stok += entity.Stok;
         db.ProductVariants.Add(entity);
-        if (entity.Stok > 0)
+        if (request.Stok > 0)
         {
-            db.StockHistories.Add(new StockHistoryEntity
-            {
-                TenantId = TenantId,
-                ProdukId = product.Id,
-                ProdukNama = product.Nama,
-                ProductVariantId = entity.Id,
-                VariantSku = entity.Sku,
-                VariantLabel = entity.Label,
-                Tipe = "masuk",
-                Jumlah = entity.Stok,
-                StokAkhir = product.Stok,
-                Keterangan = "Stok awal varian",
-                User = currentUser.Username ?? string.Empty
-            });
+            await stockBalances.AdjustAsync(
+                product, entity, request.Stok, "masuk", "Stok awal varian",
+                currentUser.Username ?? string.Empty, cancellationToken);
         }
         await db.SaveChangesAsync(cancellationToken);
-        return MapVariant(entity);
+        return MapVariant(entity,
+            await stockBalances.GetVariantAvailableUnitsAsync(
+                product.Id, entity.Id, cancellationToken));
     }
 
     public async Task<ProductVariantDto> UpdateVariantAsync(
@@ -154,7 +153,9 @@ public sealed class RetailCatalogService(
         var normalized = NormalizeVariant(request);
         await EnsureVariantUniqueAsync(entity.Id, normalized.Sku, normalized.Barcode, cancellationToken);
 
-        if (request.Stok != entity.Stok)
+        var outletStock = await stockBalances.GetVariantAvailableUnitsAsync(
+            product.Id, entity.Id, cancellationToken);
+        if (request.Stok != outletStock)
         {
             throw Conflict(
                 "VARIANT_STOCK_USE_ADJUSTMENT",
@@ -172,11 +173,10 @@ public sealed class RetailCatalogService(
         entity.Option3Value = normalized.Option3Value;
         entity.HargaModal = request.HargaModal;
         entity.HargaJual = request.HargaJual;
-        entity.Stok = request.Stok;
         entity.Active = request.Active;
 
         await db.SaveChangesAsync(cancellationToken);
-        return MapVariant(entity);
+        return MapVariant(entity, outletStock);
     }
 
     public async Task<ProductVariantDto> AdjustVariantStockAsync(
@@ -191,7 +191,8 @@ public sealed class RetailCatalogService(
         var product = entity.Product
             ?? throw new InvalidOperationException("Produk varian tidak tersedia.");
 
-        var oldStock = entity.Stok;
+        var oldStock = await stockBalances.GetVariantAvailableUnitsAsync(
+            product.Id, entity.Id, cancellationToken);
         var newStock = oldStock;
         var delta = request.Jumlah;
         var stockType = (request.Tipe ?? string.Empty).Trim().ToLowerInvariant();
@@ -216,27 +217,12 @@ public sealed class RetailCatalogService(
                 throw Invalid("VARIANT_STOCK_TYPE_INVALID", "Tipe stok harus masuk, keluar, atau penyesuaian.");
         }
 
-        if (product.Stok + delta < 0)
-            throw Conflict("VARIANT_PARENT_STOCK_INVALID", "Stok agregat produk tidak boleh negatif.");
-
-        entity.Stok = newStock;
-        product.Stok += delta;
-        db.StockHistories.Add(new StockHistoryEntity
-        {
-            TenantId = TenantId,
-            ProdukId = product.Id,
-            ProdukNama = product.Nama,
-            ProductVariantId = entity.Id,
-            VariantSku = entity.Sku,
-            VariantLabel = entity.Label,
-            Tipe = stockType,
-            Jumlah = delta,
-            StokAkhir = product.Stok,
-            Keterangan = request.Keterangan?.Trim() ?? string.Empty,
-            User = currentUser.Username ?? string.Empty
-        });
+        await stockBalances.AdjustAsync(
+            product, entity, delta, stockType,
+            request.Keterangan?.Trim() ?? string.Empty,
+            currentUser.Username ?? string.Empty, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        return MapVariant(entity);
+        return MapVariant(entity, newStock);
     }
 
     public async Task DeleteVariantAsync(
@@ -470,7 +456,10 @@ public sealed class RetailCatalogService(
         return new PriceRequestContext(product, variant, level);
     }
 
-    private static RetailCatalogProductDto MapCatalogProduct(ProductEntity product) => new()
+    private static RetailCatalogProductDto MapCatalogProduct(
+        ProductEntity product,
+        int outletStock,
+        IReadOnlyDictionary<Guid, int> variantStocks) => new()
     {
         Id = product.Id,
         Kode = product.Kode,
@@ -479,14 +468,15 @@ public sealed class RetailCatalogService(
         Kategori = product.Kategori,
         HargaModal = product.HargaModal,
         HargaJual = product.HargaJual,
-        Stok = product.Stok,
+        Stok = outletStock,
         Supplier = product.Supplier,
         Satuan = product.Satuan,
         Deskripsi = product.Deskripsi,
         Type = product.Type,
         TracksStock = product.TracksStock,
         QuantityPrecision = product.QuantityPrecision,
-        Variants = product.Variants.OrderBy(x => x.Label).Select(MapVariant).ToList(),
+        Variants = product.Variants.OrderBy(x => x.Label)
+            .Select(x => MapVariant(x, variantStocks.GetValueOrDefault(x.Id))).ToList(),
         Prices = product.Prices
             .Where(x => x.PriceLevel is not null)
             .OrderBy(x => x.MinQuantity)
@@ -495,7 +485,7 @@ public sealed class RetailCatalogService(
             .ToList()
     };
 
-    private static ProductVariantDto MapVariant(ProductVariant x) => new()
+    private static ProductVariantDto MapVariant(ProductVariant x, int outletStock) => new()
     {
         Id = x.Id,
         ProductId = x.ProductId,
@@ -510,7 +500,7 @@ public sealed class RetailCatalogService(
         Option3Value = x.Option3Value,
         HargaModal = x.HargaModal,
         HargaJual = x.HargaJual,
-        Stok = x.Stok,
+        Stok = outletStock,
         Active = x.Active
     };
 
