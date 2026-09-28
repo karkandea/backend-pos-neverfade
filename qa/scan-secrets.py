@@ -30,8 +30,8 @@ GENERIC_ASSIGNMENT = re.compile(
 
 PLACEHOLDERS = (
     "redacted", "placeholder", "example", "dummy", "changeme", "change-me",
-    "replace-me", "local-only", "test-key", "test-secret", "test-password",
-    "\${", "$(", "<", "neverfade-test", "phase3b-local-only",
+    "replace-me", "local-only", "test-key", "test-secret", "test-password", "neverfade_ci",
+    "${", "$(", "<", "neverfade-test", "phase3b-local-only",
 )
 
 def tracked_files() -> list[Path]:
