@@ -4,6 +4,7 @@ using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Services.Outlet;
+using ProductEntity = NeverfadePos.Api.Entities.Product;
 
 namespace NeverfadePos.Api.Services.Stock;
 
@@ -15,9 +16,9 @@ public interface IStockBalanceService
         IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken = default);
     Task<IReadOnlyDictionary<Guid, int>> GetVariantAvailableUnitsAsync(
         IReadOnlyCollection<Guid> variantIds, CancellationToken cancellationToken = default);
-    Task SetAsync(Product product, ProductVariant? variant, int desiredUnits,
+    Task SetAsync(ProductEntity product, ProductVariant? variant, int desiredUnits,
         string reason, string user, CancellationToken cancellationToken = default);
-    Task AdjustAsync(Product product, ProductVariant? variant, int delta,
+    Task AdjustAsync(ProductEntity product, ProductVariant? variant, int delta,
         string movementType, string reason, string user,
         CancellationToken cancellationToken = default);
 }
@@ -127,7 +128,7 @@ public sealed class StockBalanceService(
     }
 
     public async Task SetAsync(
-        Product product,
+        ProductEntity product,
         ProductVariant? variant,
         int desiredUnits,
         string reason,
@@ -144,7 +145,7 @@ public sealed class StockBalanceService(
     }
 
     public async Task AdjustAsync(
-        Product product,
+        ProductEntity product,
         ProductVariant? variant,
         int delta,
         string movementType,
@@ -158,7 +159,7 @@ public sealed class StockBalanceService(
     }
 
     private Task AdjustCoreAsync(
-        Product product,
+        ProductEntity product,
         ProductVariant? variant,
         StockBalance balance,
         int delta,
@@ -213,7 +214,7 @@ public sealed class StockBalanceService(
     }
 
     private async Task<StockBalance> GetOrCreateAsync(
-        Product product,
+        ProductEntity product,
         ProductVariant? variant,
         CancellationToken cancellationToken)
     {
