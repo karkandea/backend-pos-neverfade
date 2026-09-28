@@ -99,3 +99,18 @@ These are **coverage candidates**, not release evidence until run against the re
 3. Reclassify each existing BR story as DONE / PARTIAL / NOT_STARTED only from acceptance + H/E/A evidence.
 4. Continue implementation from the first real dependency gap. Do **not** restart EX01 from zero if S1/S2 source already satisfies its acceptance.
 5. No production deploy/merge is allowed solely from source presence; use the same-SHA release gates from the Endgame v2 package.
+## EX00 evidence update — 2026-09-28
+
+Validated after the initial baseline:
+
+- Production DB history: PASS read-only, 24 migrations; latest `20260926140901_AddSprint2CashPreparedAttempt`.
+- Backend current continuation tests: PASS, 200/200, 0 failed, 0 skipped on VPS from Endgame branch source.
+- Disposable PostgreSQL migration gate: PASS; clean apply to 24, idempotent second apply remains 24, rollback latest to 23, reapply to 24. Production DB not modified.
+- Isolated RC created from QA fixtures only, provider mode Disabled, current code: backend `7fc0d6f`, frontend `77fdb96`; accessed through loopback-only proxy/tunnel.
+- R1 finance raw-500 regression: PASS on isolated RC; owner finance endpoints and page load without the historical internal-server-error state.
+- R2 restaurant table regression: PASS on isolated RC; `qa.resto` resolves `food_beverage` context and existing table A1 is visible. The pre-existing smoke test required an adapter fix because `/api/v2/context` now returns the canonical `{data,meta}` envelope.
+- R3 send-to-kitchen regression: PASS on isolated RC; real QA order is persisted, sent, visible in the kitchen queue, then cleaned up.
+- R4 QR pending/cancel recovery browser regression: PASS 3/3 for cancel recovery, refresh without duplicate create, and transient status recovery. This is browser/backend-contract regression evidence only; real live-provider settlement/cancel certification remains OPEN under provider integration gates.
+
+Remaining EX00/early-release concerns: controlled dependency-audit remediation, external provider/device procurement evidence, and story-by-story H/E/A classification beyond R1–R4.
+
