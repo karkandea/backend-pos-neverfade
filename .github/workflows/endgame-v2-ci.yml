@@ -42,15 +42,19 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
+        id: restore
         run: dotnet restore NeverfadePos.slnx
 
       - name: Scan committed secrets
+        id: secret_scan
         run: python3 qa/scan-secrets.py
 
       - name: Verify staging fail-closed policy
+        id: staging_policy
         run: python3 qa/verify-staging-policy.py qa/staging-policy.example.env
 
       - name: Scan NuGet vulnerabilities
+        id: vuln_scan
         shell: bash
         run: |
           set -euo pipefail
@@ -61,15 +65,19 @@ jobs:
           fi
 
       - name: Build
+        id: build
         run: dotnet build NeverfadePos.slnx --configuration Release --no-restore
 
       - name: Test
+        id: test
         run: dotnet test NeverfadePos.slnx --configuration Release --no-build --logger "console;verbosity=normal"
 
       - name: Install EF migration tool
+        id: ef_tool
         run: dotnet tool install --global dotnet-ef --version 10.0.9
 
       - name: Rehearse migrations on disposable PostgreSQL
+        id: migration
         shell: bash
         env:
           PGPASSWORD: neverfade_ci
@@ -86,6 +94,7 @@ jobs:
           echo "Migration gate PASS: count=$second_count latest=$second_latest"
 
       - name: Publish immutable candidate
+        id: publish
         shell: bash
         run: |
           set -euo pipefail
@@ -109,6 +118,7 @@ jobs:
           PY
 
       - name: Upload candidate evidence
+        id: candidate_upload
         uses: actions/upload-artifact@v4
         with:
           name: neverfade-backend-${{ github.sha }}
@@ -117,6 +127,32 @@ jobs:
             artifact/neverfade-backend-*.tar.gz
             artifact/SHA256SUMS
             artifact/deployment-record.json
+
+      - name: Write gate diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p ci-diagnostics
+          cat > ci-diagnostics/step-outcomes.txt <<EOF
+          restore=${{ steps.restore.outcome }}
+          secret_scan=${{ steps.secret_scan.outcome }}
+          staging_policy=${{ steps.staging_policy.outcome }}
+          vuln_scan=${{ steps.vuln_scan.outcome }}
+          build=${{ steps.build.outcome }}
+          test=${{ steps.test.outcome }}
+          ef_tool=${{ steps.ef_tool.outcome }}
+          migration=${{ steps.migration.outcome }}
+          publish=${{ steps.publish.outcome }}
+          candidate_upload=${{ steps.candidate_upload.outcome }}
+          EOF
+
+      - name: Upload gate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: endgame-v2-ci-diagnostics-${{ github.sha }}
+          if-no-files-found: error
+          path: ci-diagnostics/step-outcomes.txt
 
       - name: Attest release candidate provenance
         if: github.event_name != 'pull_request'
