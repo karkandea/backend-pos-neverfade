@@ -92,8 +92,8 @@ jobs:
           rm -rf artifact
           mkdir -p artifact/backend
           dotnet publish NeverfadePos.Api/NeverfadePos.Api.csproj --configuration Release --no-restore --output artifact/backend
-          tar -C artifact -czf artifact/neverfade-backend-\${GITHUB_SHA}.tar.gz backend
-          sha256sum artifact/neverfade-backend-\${GITHUB_SHA}.tar.gz > artifact/SHA256SUMS
+          tar -C artifact -czf artifact/neverfade-backend-${GITHUB_SHA}.tar.gz backend
+          sha256sum artifact/neverfade-backend-${GITHUB_SHA}.tar.gz > artifact/SHA256SUMS
           python3 - <<'PY'
           import json, os
           from datetime import datetime, timezone
@@ -111,7 +111,7 @@ jobs:
       - name: Upload candidate evidence
         uses: actions/upload-artifact@v4
         with:
-          name: neverfade-backend-\${{ github.sha }}
+          name: neverfade-backend-${{ github.sha }}
           if-no-files-found: error
           path: |
             artifact/neverfade-backend-*.tar.gz
