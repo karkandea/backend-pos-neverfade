@@ -28,6 +28,10 @@ GENERIC_ASSIGNMENT = re.compile(
     """
 )
 
+GENERIC_CONFIG_SUFFIXES = {
+    ".env", ".json", ".yaml", ".yml", ".toml", ".ini", ".conf", ".config", ".properties",
+}
+
 PLACEHOLDERS = (
     "redacted", "placeholder", "example", "dummy", "changeme", "change-me",
     "replace-me", "local-only", "test-key", "test-secret", "test-password", "neverfade_ci",
@@ -60,7 +64,12 @@ for path in tracked_files():
             if pattern.search(line):
                 findings.append((str(path), line_number, name))
 
-        if any(part.lower() in {"tests", "test", "docs"} for part in path.parts):
+        if path.suffix.lower() not in GENERIC_CONFIG_SUFFIXES:
+            continue
+        if any(
+            part.lower() in {"tests", "test", "docs"} or part.lower().endswith(".tests")
+            for part in path.parts
+        ):
             continue
         match = GENERIC_ASSIGNMENT.search(line)
         if match and not looks_placeholder(match.group(2)):
