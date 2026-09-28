@@ -83,7 +83,7 @@ namespace NeverfadePos.Api.Migrations
                     "AsOf", "Version", "CreatedAt")
                 SELECT
                     md5(p."TenantId"::text || ':' || d."OutletId"::text || ':' || p."Id"::text || ':base')::uuid,
-                    p."TenantId", d."OutletId", p."Id", NULL, NULL,
+                    p."TenantId", d."OutletId", p."Id", NULL::uuid, NULL::uuid,
                     p."Stok", 0, 0, p."Stok", p."HargaModal",
                     NOW(), 1, NOW()
                 FROM products p
@@ -95,7 +95,7 @@ namespace NeverfadePos.Api.Migrations
                 UNION ALL
                 SELECT
                     md5(v."TenantId"::text || ':' || d."OutletId"::text || ':' || v."ProductId"::text || ':' || v."Id"::text)::uuid,
-                    v."TenantId", d."OutletId", v."ProductId", v."Id", NULL,
+                    v."TenantId", d."OutletId", v."ProductId", v."Id", NULL::uuid,
                     v."Stok", 0, 0, v."Stok", COALESCE(v."HargaModal", p."HargaModal"),
                     NOW(), 1, NOW()
                 FROM product_variants v
