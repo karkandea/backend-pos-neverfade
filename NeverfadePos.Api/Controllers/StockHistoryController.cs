@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.DTOs.StockHistory;
 using NeverfadePos.Api.Services.StockHistory;
 
@@ -7,6 +8,7 @@ namespace NeverfadePos.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[RequireOutletScope]
 [Route("api/stock-history")]
 public sealed class StockHistoryController(
     IStockHistoryService stockHistoryService)

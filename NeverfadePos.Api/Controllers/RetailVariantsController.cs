@@ -9,6 +9,7 @@ namespace NeverfadePos.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[RequireOutletScope]
 [RequireCapability(TenantCapabilities.ProductVariants)]
 [Route("api/retail/variants")]
 public sealed class RetailVariantsController(IRetailCatalogService retailService) : ControllerBase

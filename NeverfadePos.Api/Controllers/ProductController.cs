@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.DTOs.Product;
 using NeverfadePos.Api.Services.Product;
 
@@ -7,6 +8,7 @@ namespace NeverfadePos.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[RequireOutletScope]
 [Route("api/products")]
 public sealed class ProductController(
     IProductService productService)
