@@ -12,6 +12,7 @@ using NeverfadePos.Api.Payments.Xendit;
 using NeverfadePos.Api.Payments;
 using NeverfadePos.Api.Services.Retail;
 using NeverfadePos.Api.Services.Outlet;
+using NeverfadePos.Api.Services.Sales;
 
 namespace NeverfadePos.Api.Services.Payment;
 
@@ -165,6 +166,10 @@ internal sealed class PaymentService(
             }
         }
 
+        // A provider POST may be accepted even if the response is lost. A failed
+        // local payment would permit a second charge, so keep the original
+        // immutable reference pending until a verified provider event resolves it.
+        var providerRequestStarted = false;
         try
         {
             var expiryMinutes = xenditOptions.Value.QrisExpiryMinutes;
@@ -174,6 +179,7 @@ internal sealed class PaymentService(
                     "Xendit:QrisExpiryMinutes must be between 2 and 30.");
             }
 
+            providerRequestStarted = true;
             var providerResult = await xendit.CreateQrisAsync(
                 referenceId,
                 draft.Total,
@@ -192,23 +198,40 @@ internal sealed class PaymentService(
                     "Xendit payment response tidak sesuai request NeverFade.");
             }
 
-            payment.ProviderPaymentRequestId =
-                providerResult.PaymentRequestId;
-            payment.QrString = providerResult.QrString;
-            payment.ExpiresAt = providerResult.ExpiresAt;
-            payment.Status = PaymentConstants.StatusPending;
-            payment.UpdatedAt = DateTime.UtcNow;
+            // An authenticated webhook may have arrived before the provider POST
+            // returned. Serialize registration and reload the terminal state;
+            // never overwrite a paid/failed outcome with pending.
+            await using var registrationTransaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(cancellationToken)
+                : null;
+            await TenantStockLock.AcquireAsync(db, tenantId, cancellationToken);
+            await db.Entry(payment).ReloadAsync(cancellationToken);
+            if (payment.ProviderPaymentRequestId is { } existingRequestId &&
+                existingRequestId != providerResult.PaymentRequestId)
+                throw new PaymentApiException(StatusCodes.Status409Conflict,
+                    "PAYMENT_PROVIDER_REQUEST_CONFLICT",
+                    "Provider request tidak sesuai dengan attempt yang tersimpan.");
 
-            db.PaymentRoutes.Add(new PaymentRoute
+            if (payment.Status is not (PaymentConstants.StatusPaid or PaymentConstants.StatusFailed))
             {
-                TenantId = tenantId,
-                PaymentId = payment.Id,
-                Provider = PaymentConstants.Provider,
-                ProviderPaymentRequestId =
-                    providerResult.PaymentRequestId
-            });
-
+                payment.ProviderPaymentRequestId = providerResult.PaymentRequestId;
+                payment.QrString = providerResult.QrString;
+                payment.ExpiresAt = providerResult.ExpiresAt;
+                payment.Status = PaymentConstants.StatusPending;
+                payment.UpdatedAt = DateTime.UtcNow;
+            }
+            if (!await db.PaymentRoutes.AsNoTracking().AnyAsync(
+                    x => x.PaymentId == payment.Id, cancellationToken))
+                db.PaymentRoutes.Add(new PaymentRoute
+                {
+                    TenantId = tenantId,
+                    PaymentId = payment.Id,
+                    Provider = PaymentConstants.Provider,
+                    ProviderPaymentRequestId = providerResult.PaymentRequestId
+                });
             await db.SaveChangesAsync(cancellationToken);
+            if (registrationTransaction is not null)
+                await registrationTransaction.CommitAsync(cancellationToken);
 
             return new QrisPaymentDto
             {
@@ -220,12 +243,26 @@ internal sealed class PaymentService(
                 Amount = payment.Amount,
                 Currency = payment.Currency,
                 Status = payment.Status,
-                QrString = providerResult.QrString,
+                QrString = payment.QrString,
                 ExpiresAt = providerResult.ExpiresAt
             };
         }
+        catch (Exception ex) when (providerRequestStarted &&
+            ex is not OperationCanceledException)
+        {
+            // In the ambiguous case the persisted state is still 'creating' or
+            // was atomically saved as 'pending'. Neither is safe to retry as a new
+            // charge. Do NOT mark sale failed or clear the outstanding attempt.
+            throw new PaymentApiException(StatusCodes.Status503ServiceUnavailable,
+                "PAYMENT_CREATION_UNCERTAIN",
+                "Kepastian pembuatan QRIS belum diterima. Periksa pembayaran sebelumnya; jangan buat tagihan baru.");
+        }
         catch
         {
+            // Known local preflight failure before provider request was sent.
+            // A client cancellation after dispatch is also ambiguous and must
+            // not finalize a sale as failed.
+            if (providerRequestStarted) throw;
             payment.Status = PaymentConstants.StatusFailed;
             payment.UpdatedAt = DateTime.UtcNow;
             transaction.Status = TransactionStatuses.Failed;
@@ -305,11 +342,32 @@ internal sealed class PaymentService(
             payment.ProviderPaymentRequestId,
             cancellationToken);
 
+        // The provider cancellation request can race a webhook. Re-read after
+        // acquiring the same stock/payment lock before changing terminal state.
+        await using var cancellationTransaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        await TenantStockLock.AcquireAsync(db, payment.TenantId, cancellationToken);
+        await db.Entry(payment).ReloadAsync(cancellationToken);
+        if (payment.Status == PaymentConstants.StatusPaid)
+            throw new PaymentApiException(StatusCodes.Status409Conflict,
+                "PAYMENT_ALREADY_PAID",
+                "Pembayaran telah dikonfirmasi berhasil dan tidak dapat dibatalkan.");
+        if (payment.Status == PaymentConstants.StatusFailed)
+            return MapStatus(payment);
+
         payment.Status = PaymentConstants.StatusFailed;
         payment.FailureCode = "PAYMENT_REQUEST_CANCELED";
         payment.UpdatedAt = DateTime.UtcNow;
-        payment.Transaction!.Status = TransactionStatuses.Failed;
+        if (payment.Transaction is not null)
+        {
+            await db.Entry(payment.Transaction).ReloadAsync(cancellationToken);
+            if (payment.Transaction.Status == TransactionStatuses.PendingPayment)
+                payment.Transaction.Status = TransactionStatuses.Failed;
+        }
         await db.SaveChangesAsync(cancellationToken);
+        if (cancellationTransaction is not null)
+            await cancellationTransaction.CommitAsync(cancellationToken);
 
         return MapStatus(payment);
     }
@@ -322,50 +380,64 @@ internal sealed class PaymentService(
         VerifyCallbackToken(callbackToken);
         ValidateWebhookShape(webhook);
 
-        var route = await db.PaymentRoutes
-            .AsNoTracking()
-            .SingleOrDefaultAsync(
-                x =>
-                    x.Provider == PaymentConstants.Provider &&
-                    x.ProviderPaymentRequestId ==
-                        webhook.Data.PaymentRequestId,
-                cancellationToken)
-            ?? throw new PaymentApiException(
-                StatusCodes.Status404NotFound,
-                "PAYMENT_ROUTE_NOT_FOUND",
-                "Payment route tidak ditemukan.");
+        var route = await db.PaymentRoutes.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Provider == PaymentConstants.Provider &&
+                x.ProviderPaymentRequestId == webhook.Data.PaymentRequestId,
+                cancellationToken);
 
-        using var tenantScope = trustedTenantScope.Begin(
-            route.TenantId,
+        // A provider can accept create while its HTTP response is lost. Its
+        // authenticated callback still carries the immutable globally unique
+        // NeverFade reference; recover that original payment, never create a
+        // second draft. The tenant scope is established from the DB record,
+        // not from a client-supplied tenant header or payment amount.
+        var unregistered = route is null
+            ? await db.Payments.IgnoreQueryFilters().AsNoTracking()
+                .Where(x => x.Provider == PaymentConstants.Provider &&
+                    x.ProviderReferenceId == webhook.Data.ReferenceId)
+                .Select(x => new { x.Id, x.TenantId, x.ProviderPaymentRequestId })
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+        if (route is null && unregistered is null)
+            throw new PaymentApiException(StatusCodes.Status404NotFound,
+                "PAYMENT_ROUTE_NOT_FOUND", "Payment route tidak ditemukan.");
+        if (unregistered?.ProviderPaymentRequestId is { } previousRequestId &&
+            previousRequestId != webhook.Data.PaymentRequestId)
+            throw new PaymentApiException(StatusCodes.Status409Conflict,
+                "XENDIT_WEBHOOK_REQUEST_MISMATCH", "Provider request tidak sesuai referensi payment.");
+
+        var paymentId = route?.PaymentId ?? unregistered!.Id;
+        var tenantId = route?.TenantId ?? unregistered!.TenantId;
+        using var tenantScope = trustedTenantScope.Begin(tenantId,
             $"xendit-webhook:{webhook.Event}");
-
-        var eventKey = $"{webhook.Event}:{webhook.Data.PaymentId}";
-        var duplicate = await db.PaymentWebhookEvents
-            .AsNoTracking()
-            .AnyAsync(
-                x => x.ProviderEventKey == eventKey,
-                cancellationToken);
-
-        if (duplicate)
-        {
-            return;
-        }
-
-        var payment = await db.Payments
-            .Include(x => x.Transaction)
-                .ThenInclude(x => x!.Items)
-            .SingleAsync(
-                x =>
-                    x.Id == route.PaymentId &&
-                    x.ProviderPaymentRequestId ==
-                        route.ProviderPaymentRequestId,
-                cancellationToken);
-
-        ValidateWebhookMatchesPayment(webhook, payment);
-
         await using var databaseTransaction = db.Database.IsRelational()
             ? await db.Database.BeginTransactionAsync(cancellationToken)
             : null;
+        await TenantStockLock.AcquireAsync(db, tenantId, cancellationToken);
+
+        var eventKey = $"{webhook.Event}:{webhook.Data.PaymentId}";
+        if (await db.PaymentWebhookEvents.AsNoTracking().AnyAsync(
+                x => x.ProviderEventKey == eventKey, cancellationToken)) return;
+
+        var payment = await db.Payments.Include(x => x.Transaction)
+            .ThenInclude(x => x!.Items)
+            .SingleAsync(x => x.Id == paymentId, cancellationToken);
+        if (payment.ProviderPaymentRequestId is { } storedRequestId &&
+            storedRequestId != webhook.Data.PaymentRequestId)
+            throw new PaymentApiException(StatusCodes.Status409Conflict,
+                "XENDIT_WEBHOOK_REQUEST_MISMATCH", "Provider request tidak sesuai referensi payment.");
+        ValidateWebhookMatchesPayment(webhook, payment);
+
+        if (route is null)
+        {
+            payment.ProviderPaymentRequestId = webhook.Data.PaymentRequestId;
+            db.PaymentRoutes.Add(new PaymentRoute
+            {
+                TenantId = tenantId,
+                PaymentId = payment.Id,
+                Provider = PaymentConstants.Provider,
+                ProviderPaymentRequestId = webhook.Data.PaymentRequestId
+            });
+        }
 
         if (webhook.Event == "payment.capture")
         {
@@ -374,7 +446,8 @@ internal sealed class PaymentService(
                 webhook,
                 cancellationToken);
         }
-        else
+        else if (payment.Status != PaymentConstants.StatusPaid &&
+                 payment.Status != PaymentConstants.StatusFailed)
         {
             payment.Status = PaymentConstants.StatusFailed;
             payment.FailureCode = webhook.Data.FailureCode;
@@ -385,12 +458,14 @@ internal sealed class PaymentService(
 
         db.PaymentWebhookEvents.Add(new PaymentWebhookEvent
         {
-            TenantId = route.TenantId,
+            TenantId = tenantId,
             PaymentId = payment.Id,
             ProviderEventKey = eventKey,
             EventType = webhook.Event,
             ProviderPaymentId = webhook.Data.PaymentId,
-            ProcessingStatus = "processed"
+            ProcessingStatus = webhook.Event == "payment.failure" &&
+                payment.Status == PaymentConstants.StatusPaid
+                ? "ignored_paid_terminal" : "processed"
         });
 
         await db.SaveChangesAsync(cancellationToken);
@@ -513,6 +588,7 @@ internal sealed class PaymentService(
         transaction.FinalizedAt = paidAt;
 
         payment.Status = PaymentConstants.StatusPaid;
+        payment.FailureCode = null;
         payment.ProviderPaymentId = webhook.Data.PaymentId;
         payment.PaidAt = paidAt;
         payment.UpdatedAt = paidAt;
@@ -534,7 +610,8 @@ internal sealed class PaymentService(
     {
         Id = payment.Id,
         TransactionId = payment.TransactionId,
-        Status = IsExpiredFailure(payment.FailureCode)
+        Status = payment.Status == PaymentConstants.StatusFailed &&
+            IsExpiredFailure(payment.FailureCode)
             ? PaymentConstants.StatusExpired
             : payment.Status,
         Amount = payment.Amount,

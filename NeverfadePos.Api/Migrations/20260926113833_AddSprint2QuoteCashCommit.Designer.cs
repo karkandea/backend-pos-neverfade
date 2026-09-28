@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NeverfadePos.Api.Data;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NeverfadePos.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260926113833_AddSprint2QuoteCashCommit")]
+    partial class AddSprint2QuoteCashCommit
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1641,13 +1644,6 @@ namespace NeverfadePos.Api.Migrations
                     b.Property<Guid>("OutletId")
                         .HasColumnType("uuid");
 
-                    b.Property<decimal?>("PreparedAmountReceived")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<DateTime?>("PreparedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<Guid>("QuoteVersion")
                         .HasColumnType("uuid");
 
@@ -1677,11 +1673,9 @@ namespace NeverfadePos.Api.Migrations
                     b.HasIndex("TenantId", "OutletId", "IdempotencyKey")
                         .IsUnique();
 
-                    b.HasIndex("TenantId", "OutletId", "CreatedByUserId", "PreparedAt");
-
                     b.ToTable("sale_quotes", null, t =>
                         {
-                            t.HasCheckConstraint("CK_sale_quotes_Status", "\"Status\" IN ('quoted', 'consumed', 'abandoned')");
+                            t.HasCheckConstraint("CK_sale_quotes_Status", "\"Status\" IN ('quoted', 'consumed')");
 
                             t.HasCheckConstraint("CK_sale_quotes_Total", "\"Total\" >= 0");
                         });

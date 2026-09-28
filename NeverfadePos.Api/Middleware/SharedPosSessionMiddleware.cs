@@ -67,13 +67,9 @@ public sealed class SharedPosSessionMiddleware(RequestDelegate next)
             RequiresRecentReauth(context.Request.Path) &&
             !HasRecentReauth(context.User, now))
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsJsonAsync(new
-            {
-                code = "SHARED_DEVICE_REAUTH_REQUIRED",
-                message = "Masukkan PIN owner/admin lagi untuk melanjutkan tindakan sensitif ini."
-            });
+            await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+                context, StatusCodes.Status403Forbidden, "SHARED_DEVICE_REAUTH_REQUIRED",
+                "Masukkan PIN owner/admin lagi untuk melanjutkan tindakan sensitif ini.");
             return;
         }
 
@@ -96,12 +92,8 @@ public sealed class SharedPosSessionMiddleware(RequestDelegate next)
 
     private static async Task RejectAsync(HttpContext context)
     {
-        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsJsonAsync(new
-        {
-            code = "SHARED_SESSION_INVALID",
-            message = "Sesi shared POS sudah tidak aktif. Masukkan PIN lagi."
-        });
+        await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+            context, StatusCodes.Status401Unauthorized, "SHARED_SESSION_INVALID",
+            "Sesi shared POS sudah tidak aktif. Masukkan PIN lagi.");
     }
 }

@@ -22,21 +22,17 @@ public sealed class TenantStatusMiddleware(RequestDelegate next)
 
             if (status == "suspended")
             {
-                context.Response.StatusCode =
-                    StatusCodes.Status403Forbidden;
-                context.Response.ContentType = "application/json";
-                await context.Response.WriteAsJsonAsync(new
-                {
-                    code = "TENANT_SUSPENDED",
-                    message = "Tenant sedang ditangguhkan."
-                });
+                await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+                    context, StatusCodes.Status403Forbidden, "TENANT_SUSPENDED",
+                    "Tenant sedang ditangguhkan.");
                 return;
             }
 
             if (status is null)
             {
-                context.Response.StatusCode =
-                    StatusCodes.Status401Unauthorized;
+                await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+                    context, StatusCodes.Status401Unauthorized, "TENANT_SESSION_INVALID",
+                    "Sesi tenant tidak lagi valid. Login kembali.");
                 return;
             }
         }
