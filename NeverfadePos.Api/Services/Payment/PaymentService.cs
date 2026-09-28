@@ -444,6 +444,12 @@ internal sealed class PaymentService(
 
         if (webhook.Event == "payment.capture")
         {
+            var paymentOutletId = payment.Transaction?.OutletId
+                ?? throw new PaymentApiException(
+                    StatusCodes.Status409Conflict,
+                    "PAYMENT_OUTLET_REQUIRED",
+                    "Payment tidak memiliki outlet transaksi.");
+            using var paymentOutletScope = outletExecutionScope.Begin(paymentOutletId);
             await ApplySuccessfulPaymentAsync(
                 payment,
                 webhook,

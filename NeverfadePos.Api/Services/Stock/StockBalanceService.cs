@@ -26,10 +26,8 @@ public interface IStockBalanceService
 
 public sealed class StockBalanceService(
     AppDbContext db,
-    CurrentUser currentUser,
     IOutletExecutionContext outletContext) : IStockBalanceService
 {
-    private Guid TenantId => currentUser.TenantId ?? throw new UnauthorizedAccessException();
     private Guid OutletId => outletContext.OutletId
         ?? throw new InvalidOperationException("Stock operation requires an active outlet scope.");
 
@@ -197,7 +195,7 @@ public sealed class StockBalanceService(
 
         db.StockHistories.Add(new StockHistoryEntity
         {
-            TenantId = TenantId,
+            TenantId = product.TenantId,
             OutletId = OutletId,
             ProdukId = product.Id,
             ProdukNama = product.Nama,
@@ -242,7 +240,7 @@ public sealed class StockBalanceService(
 
         balance = new StockBalance
         {
-            TenantId = TenantId,
+            TenantId = product.TenantId,
             OutletId = OutletId,
             ProductId = product.Id,
             ProductVariantId = variantId,
