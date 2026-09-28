@@ -1,4 +1,3 @@
-using System.Text.Json;
 using NeverfadePos.Api.Common;
 
 namespace NeverfadePos.Api.Middleware;
@@ -27,89 +26,34 @@ public sealed class ExceptionMiddleware(
         Exception exception,
         ILogger<ExceptionMiddleware> logger)
     {
-        context.Response.ContentType = "application/json";
-
-        context.Response.StatusCode = exception switch
+        var (statusCode, code, message) = exception switch
         {
-            PlatformApiException apiException =>
-                apiException.StatusCode,
-
-            TenantApiException apiException =>
-                apiException.StatusCode,
-
-            PaymentApiException apiException =>
-                apiException.StatusCode,
-
+            PlatformApiException apiException => (apiException.StatusCode, apiException.Code, apiException.Message),
+            TenantApiException apiException => (apiException.StatusCode, apiException.Code, apiException.Message),
+            PaymentApiException apiException => (apiException.StatusCode, apiException.Code, apiException.Message),
             NeverfadePos.Api.Payments.Xendit.XenditProviderException =>
-                StatusCodes.Status502BadGateway,
-
+                (StatusCodes.Status503ServiceUnavailable, "UPSTREAM_UNAVAILABLE", "Layanan pembayaran belum tersedia. Coba periksa status sebelum mengulangi."),
             UnauthorizedAccessException =>
-                StatusCodes.Status401Unauthorized,
-
+                (StatusCodes.Status401Unauthorized, "AUTHENTICATION_REQUIRED", "Autentikasi diperlukan."),
             KeyNotFoundException =>
-                StatusCodes.Status404NotFound,
-
+                (StatusCodes.Status404NotFound, "RESOURCE_NOT_FOUND", "Data tidak ditemukan."),
             ConflictException =>
-                StatusCodes.Status409Conflict,
-
+                (StatusCodes.Status409Conflict, "CONFLICT", "Data berubah atau status tidak lagi sesuai. Muat ulang sebelum mencoba lagi."),
             InvalidOperationException =>
-                StatusCodes.Status400BadRequest,
-
+                (StatusCodes.Status400BadRequest, "INVALID_OPERATION", exception.Message),
             ArgumentException =>
-                StatusCodes.Status400BadRequest,
-
+                (StatusCodes.Status400BadRequest, "INVALID_REQUEST", exception.Message),
             _ =>
-                StatusCodes.Status500InternalServerError
+                (StatusCodes.Status500InternalServerError, "INTERNAL_SERVER_ERROR", "Internal server error.")
         };
 
-        if (context.Response.StatusCode ==
-            StatusCodes.Status500InternalServerError)
-        {
-            logger.LogError(
-                exception,
-                "Unhandled exception on {Method} {Path}",
-                context.Request.Method,
-                context.Request.Path);
-        }
+        if (statusCode == StatusCodes.Status500InternalServerError)
+            logger.LogError(exception, "Unhandled exception {CorrelationId} on {Method} {Path}",
+                context.TraceIdentifier, context.Request.Method, context.Request.Path);
         else
-        {
-            logger.LogWarning(
-                exception,
-                "Request failed with status {StatusCode} on {Method} {Path}",
-                context.Response.StatusCode,
-                context.Request.Method,
-                context.Request.Path);
-        }
+            logger.LogWarning(exception, "Request failed {CorrelationId} with status {StatusCode} on {Method} {Path}",
+                context.TraceIdentifier, statusCode, context.Request.Method, context.Request.Path);
 
-        object response = exception is
-            PlatformApiException platformException
-                ? new
-                {
-                    code = platformException.Code,
-                    message = platformException.Message
-                }
-                : exception is TenantApiException tenantException
-                ? new
-                {
-                    code = tenantException.Code,
-                    message = tenantException.Message
-                }
-                : exception is PaymentApiException paymentException
-                ? new
-                {
-                    code = paymentException.Code,
-                    message = paymentException.Message
-                }
-                : new
-                {
-                    message =
-                        context.Response.StatusCode ==
-                        StatusCodes.Status500InternalServerError
-                            ? "Internal server error."
-                            : exception.Message
-                };
-
-        await context.Response.WriteAsync(
-            JsonSerializer.Serialize(response));
+        await ApiErrorWriter.WriteAsync(context, statusCode, code, message);
     }
 }

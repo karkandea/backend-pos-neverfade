@@ -20,12 +20,9 @@ public sealed class OperatorAccessMiddleware(RequestDelegate next)
             return;
         }
 
-        context.Response.StatusCode = StatusCodes.Status403Forbidden;
-        await context.Response.WriteAsJsonAsync(new
-        {
-            code = "OPERATOR_SCOPE_FORBIDDEN",
-            message = "Akun operator hanya dapat mengakses antrean pekerjaan dan outlet tugasnya."
-        });
+        await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+            context, StatusCodes.Status403Forbidden, "OPERATOR_SCOPE_FORBIDDEN",
+            "Akun operator hanya dapat mengakses antrean pekerjaan dan outlet tugasnya.");
     }
 
     private static bool IsLaundryRoute(HttpRequest request)
@@ -33,7 +30,8 @@ public sealed class OperatorAccessMiddleware(RequestDelegate next)
         var path = request.Path.Value ?? string.Empty;
         if (HttpMethods.IsGet(request.Method))
             return path.Equals("/api/auth/me", StringComparison.OrdinalIgnoreCase) ||
-                path.Equals("/api/tenant/context", StringComparison.OrdinalIgnoreCase) ||
+                (path.Equals("/api/tenant/context", StringComparison.OrdinalIgnoreCase) ||
+                 path.Equals("/api/v2/context", StringComparison.OrdinalIgnoreCase)) ||
                 path.Equals("/api/outlets", StringComparison.OrdinalIgnoreCase) ||
                 path.Equals("/api/laundry/operator", StringComparison.OrdinalIgnoreCase) ||
                 (path.StartsWith("/api/laundry/operator/", StringComparison.OrdinalIgnoreCase) &&
@@ -54,7 +52,8 @@ public sealed class OperatorAccessMiddleware(RequestDelegate next)
         var path = request.Path.Value ?? string.Empty;
         if (HttpMethods.IsGet(request.Method))
             return path.Equals("/api/auth/me", StringComparison.OrdinalIgnoreCase) ||
-                path.Equals("/api/tenant/context", StringComparison.OrdinalIgnoreCase) ||
+                (path.Equals("/api/tenant/context", StringComparison.OrdinalIgnoreCase) ||
+                 path.Equals("/api/v2/context", StringComparison.OrdinalIgnoreCase)) ||
                 path.Equals("/api/outlets", StringComparison.OrdinalIgnoreCase) ||
                 path.Equals("/api/restaurant/kitchen/operator", StringComparison.OrdinalIgnoreCase);
 

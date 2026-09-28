@@ -70,7 +70,32 @@ var allowedOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? "")
 if (!builder.Environment.IsDevelopment() && allowedOrigins.Length == 0)
     throw new InvalidOperationException("Cors:AllowedOrigins missing in production.");
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var details = context.ModelState
+                .Where(entry => entry.Value?.Errors.Count > 0)
+                .SelectMany(entry => entry.Value!.Errors.Select(error => new NeverfadePos.Api.Common.ApiErrorDetail
+                {
+                    Field = entry.Key,
+                    Code = "FIELD_INVALID",
+                    Message = string.IsNullOrWhiteSpace(error.ErrorMessage) ? "Nilai field tidak valid." : error.ErrorMessage
+                }))
+                .ToArray();
+            var correlationId = context.HttpContext.TraceIdentifier;
+            context.HttpContext.Response.Headers.CacheControl = "no-store";
+            context.HttpContext.Response.Headers["X-Correlation-Id"] = correlationId;
+            return new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new NeverfadePos.Api.Common.ApiErrorResponse
+            {
+                Code = "VALIDATION_FAILED",
+                Message = "Periksa kembali data yang dikirim.",
+                CorrelationId = correlationId,
+                Details = details
+            });
+        };
+    });
 
 builder.Services.AddOpenApi(options =>
 {
@@ -228,6 +253,19 @@ builder.Services
                 // Existing TenantStatusMiddleware retains its documented 403 on suspension.
                 if (!userValid)
                     context.Fail("Tenant user session has been revoked.");
+            },
+            OnChallenge = async context =>
+            {
+                context.HandleResponse();
+                await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+                    context.HttpContext, StatusCodes.Status401Unauthorized,
+                    "AUTHENTICATION_REQUIRED", "Autentikasi diperlukan atau sesi sudah berakhir.");
+            },
+            OnForbidden = async context =>
+            {
+                await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+                    context.HttpContext, StatusCodes.Status403Forbidden,
+                    "PERMISSION_DENIED", "Akun ini tidak memiliki izin untuk tindakan tersebut.");
             }
         };
     })
@@ -255,13 +293,9 @@ builder.Services
             OnChallenge = async context =>
             {
                 context.HandleResponse();
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                context.Response.ContentType = "application/json";
-                await context.Response.WriteAsJsonAsync(new
-                {
-                    code = "PLATFORM_AUTHENTICATION_REQUIRED",
-                    message = "Autentikasi platform diperlukan."
-                });
+                await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+                    context.HttpContext, StatusCodes.Status401Unauthorized,
+                    "PLATFORM_AUTHENTICATION_REQUIRED", "Autentikasi platform diperlukan.");
             }
         };
     });
