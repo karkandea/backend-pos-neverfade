@@ -15,22 +15,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_DB: neverfade_ci
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: neverfade_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d neverfade_ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
     env:
-      ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=neverfade_ci;Username=postgres;Password=neverfade_ci
+      ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=55432;Database=neverfade_ci;Username=postgres;Password=neverfade_ci
 
     steps:
       - name: Checkout exact candidate
@@ -40,6 +26,26 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+
+      - name: Start PostgreSQL 17
+        id: postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name neverfade-ci-postgres \
+            -e POSTGRES_DB=neverfade_ci \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=neverfade_ci \
+            -p 127.0.0.1:55432:5432 \
+            postgres:17-alpine
+          for attempt in {1..30}; do
+            if docker exec neverfade-ci-postgres pg_isready -U postgres -d neverfade_ci >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs neverfade-ci-postgres
+          exit 1
 
       - name: Restore
         id: restore
@@ -84,11 +90,11 @@ jobs:
         run: |
           set -euo pipefail
           dotnet-ef database update --project NeverfadePos.Api/NeverfadePos.Api.csproj --startup-project NeverfadePos.Api/NeverfadePos.Api.csproj --configuration Release --no-build
-          first_count="$(psql -h 127.0.0.1 -U postgres -d neverfade_ci -Atc 'SELECT COUNT(*) FROM "__EFMigrationsHistory";')"
-          first_latest="$(psql -h 127.0.0.1 -U postgres -d neverfade_ci -Atc 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1;')"
+          first_count="$(psql -h 127.0.0.1 -p 55432 -U postgres -d neverfade_ci -Atc 'SELECT COUNT(*) FROM "__EFMigrationsHistory";')"
+          first_latest="$(psql -h 127.0.0.1 -p 55432 -U postgres -d neverfade_ci -Atc 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1;')"
           dotnet-ef database update --project NeverfadePos.Api/NeverfadePos.Api.csproj --startup-project NeverfadePos.Api/NeverfadePos.Api.csproj --configuration Release --no-build
-          second_count="$(psql -h 127.0.0.1 -U postgres -d neverfade_ci -Atc 'SELECT COUNT(*) FROM "__EFMigrationsHistory";')"
-          second_latest="$(psql -h 127.0.0.1 -U postgres -d neverfade_ci -Atc 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1;')"
+          second_count="$(psql -h 127.0.0.1 -p 55432 -U postgres -d neverfade_ci -Atc 'SELECT COUNT(*) FROM "__EFMigrationsHistory";')"
+          second_latest="$(psql -h 127.0.0.1 -p 55432 -U postgres -d neverfade_ci -Atc 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1;')"
           test "$first_count" = "$second_count"
           test "$first_latest" = "$second_latest"
           echo "Migration gate PASS: count=$second_count latest=$second_latest"
@@ -128,12 +134,18 @@ jobs:
             artifact/SHA256SUMS
             artifact/deployment-record.json
 
+      - name: Stop PostgreSQL
+        if: always()
+        shell: bash
+        run: docker rm -f neverfade-ci-postgres >/dev/null 2>&1 || true
+
       - name: Write gate diagnostics
         if: always()
         shell: bash
         run: |
           mkdir -p ci-diagnostics
           cat > ci-diagnostics/step-outcomes.txt <<EOF
+          postgres=${{ steps.postgres.outcome }}
           restore=${{ steps.restore.outcome }}
           secret_scan=${{ steps.secret_scan.outcome }}
           staging_policy=${{ steps.staging_policy.outcome }}
