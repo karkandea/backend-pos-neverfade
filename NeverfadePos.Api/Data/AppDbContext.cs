@@ -49,6 +49,7 @@ public class AppDbContext : DbContext
     public DbSet<TenantAuditEvent> TenantAuditEvents => Set<TenantAuditEvent>();
     public DbSet<StockHistory> StockHistories => Set<StockHistory>();
     public DbSet<SaleQuote> SaleQuotes => Set<SaleQuote>();
+    public DbSet<Job> Jobs => Set<Job>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<TransactionItem> TransactionItems => Set<TransactionItem>();
     public DbSet<Payment> Payments => Set<Payment>();
