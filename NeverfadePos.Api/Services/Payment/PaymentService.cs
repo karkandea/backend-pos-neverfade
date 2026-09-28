@@ -24,6 +24,7 @@ internal sealed class PaymentService(
     IPaymentModeGate paymentModeGate,
     IRetailSaleResolver retailSaleResolver,
     IOutletExecutionContext outletContext,
+    IOutletExecutionScope outletExecutionScope,
     IStockBalanceService stockBalances,
     IXenditPaymentProvider xendit,
     IOptions<XenditOptions> xenditOptions)
@@ -488,6 +489,22 @@ internal sealed class PaymentService(
         }
 
         var transaction = payment.Transaction!;
+        if (outletContext.OutletId.HasValue &&
+            outletContext.OutletId.Value != transaction.OutletId)
+        {
+            throw new PaymentApiException(
+                StatusCodes.Status409Conflict,
+                "PAYMENT_OUTLET_CONFLICT",
+                "Outlet payment tidak sesuai dengan outlet transaksi.");
+        }
+
+        using var stockOutletScope = outletContext.OutletId.HasValue
+            ? null
+            : outletExecutionScope.Begin(
+                transaction.OutletId ?? throw new PaymentApiException(
+                    StatusCodes.Status409Conflict,
+                    "PAYMENT_OUTLET_MISSING",
+                    "Transaksi payment tidak memiliki outlet."));
 
         foreach (var item in transaction.Items)
         {
