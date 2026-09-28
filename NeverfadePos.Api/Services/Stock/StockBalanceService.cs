@@ -5,6 +5,7 @@ using NeverfadePos.Api.Data;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Services.Outlet;
 using ProductEntity = NeverfadePos.Api.Entities.Product;
+using StockHistoryEntity = NeverfadePos.Api.Entities.StockHistory;
 
 namespace NeverfadePos.Api.Services.Stock;
 
@@ -194,7 +195,7 @@ public sealed class StockBalanceService(
         product.Stok += delta;
         if (variant is not null) variant.Stok += delta;
 
-        db.StockHistories.Add(new StockHistory
+        db.StockHistories.Add(new StockHistoryEntity
         {
             TenantId = TenantId,
             OutletId = OutletId,
