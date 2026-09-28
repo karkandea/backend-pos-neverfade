@@ -4,7 +4,7 @@ public sealed class StockHistoryDto
 {
     public Guid Id { get; set; }
 
-    public Guid ProdukId { get; set; }
+    public Guid? OutletId { get; set; }\n\n    public Guid ProdukId { get; set; }
 
     public string ProdukNama { get; set; } = string.Empty;
 
