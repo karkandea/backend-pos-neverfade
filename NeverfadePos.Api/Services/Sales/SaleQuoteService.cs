@@ -49,7 +49,8 @@ public sealed class SaleQuoteService(
             throw new TenantApiException(404, "QUOTE_CUSTOMER_NOT_FOUND", "Pelanggan tidak ditemukan.");
 
         var lines = new List<SaleQuoteLineDto>(request.Lines.Count);
-        var stockChecks = new List<(ProductEntity Product, ProductVariant? Variant, decimal Quantity)>();
+        var stockChecks = new List<(ProductEntity Product, ProductVariant? Variant,
+            decimal Quantity, int AvailableStock, int? VariantAvailableStock)>();
         foreach (var line in request.Lines)
         {
             if (line.Quantity <= 0 || line.Quantity > 1_000_000m)
@@ -59,7 +60,8 @@ public sealed class SaleQuoteService(
                 productVariantId: line.VariantId,
                 requestedPriceLevelId: line.PriceLevelId,
                 enforceStock: true, cancellationToken: cancellationToken);
-            stockChecks.Add((resolved.Product, resolved.Variant, resolved.Quantity));
+            stockChecks.Add((resolved.Product, resolved.Variant, resolved.Quantity,
+                resolved.AvailableStock, resolved.VariantAvailableStock));
             lines.Add(new SaleQuoteLineDto
             {
                 ProductId = resolved.Product.Id,
@@ -82,13 +84,17 @@ public sealed class SaleQuoteService(
         {
             var product = grouped.First().Product;
             if (!product.TracksStock) continue;
-            if (grouped.Sum(x => x.Quantity) > product.Stok)
-                throw Invalid("QUOTE_STOCK_INSUFFICIENT", "Stok gabungan item tidak mencukupi.");
+            if (grouped.Sum(x => ProductQuantityRules.ToStockUnits(x.Product, x.Quantity)) >
+                grouped.First().AvailableStock)
+                throw Invalid("QUOTE_STOCK_INSUFFICIENT",
+                    "Stok gabungan item di outlet aktif tidak mencukupi.");
             foreach (var variantGroup in grouped.Where(x => x.Variant is not null)
                 .GroupBy(x => x.Variant!.Id))
             {
-                if (variantGroup.Sum(x => x.Quantity) > variantGroup.First().Variant!.Stok)
-                    throw Invalid("QUOTE_VARIANT_STOCK_INSUFFICIENT", "Stok varian gabungan tidak mencukupi.");
+                if (variantGroup.Sum(x => ProductQuantityRules.ToStockUnits(x.Product, x.Quantity)) >
+                    variantGroup.First().VariantAvailableStock.GetValueOrDefault())
+                    throw Invalid("QUOTE_VARIANT_STOCK_INSUFFICIENT",
+                        "Stok varian gabungan di outlet aktif tidak mencukupi.");
             }
         }
 
