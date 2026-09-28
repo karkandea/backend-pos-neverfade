@@ -13,6 +13,7 @@ using NeverfadePos.Api.Payments;
 using NeverfadePos.Api.Services.Retail;
 using NeverfadePos.Api.Services.Outlet;
 using NeverfadePos.Api.Services.Sales;
+using NeverfadePos.Api.Services.Stock;
 
 namespace NeverfadePos.Api.Services.Payment;
 
@@ -23,6 +24,7 @@ internal sealed class PaymentService(
     IPaymentModeGate paymentModeGate,
     IRetailSaleResolver retailSaleResolver,
     IOutletExecutionContext outletContext,
+    IStockBalanceService stockBalances,
     IXenditPaymentProvider xendit,
     IOptions<XenditOptions> xenditOptions)
     : IPaymentService
@@ -529,43 +531,26 @@ internal sealed class PaymentService(
                         "PAYMENT_VARIANT_CONFLICT",
                         "Varian transaksi tidak lagi tersedia.");
 
-                if (variant.Stok < stockUnits)
-                {
-                    throw new PaymentApiException(
-                        StatusCodes.Status409Conflict,
-                        "PAYMENT_VARIANT_STOCK_CONFLICT",
-                        $"Stok varian {product.Nama} {item.VariantLabel} tidak mencukupi untuk finalisasi payment.");
-                }
             }
 
-            if (product.Stok < stockUnits)
+            try
+            {
+                await stockBalances.AdjustAsync(
+                    product,
+                    variant,
+                    -stockUnits,
+                    "transaksi",
+                    $"Transaksi {transaction.NoTrx}",
+                    transaction.Kasir,
+                    cancellationToken);
+            }
+            catch (TenantApiException exception)
             {
                 throw new PaymentApiException(
                     StatusCodes.Status409Conflict,
                     "PAYMENT_STOCK_CONFLICT",
-                    $"Stok produk {product.Nama} tidak mencukupi untuk finalisasi payment.");
+                    exception.Message);
             }
-
-            if (variant is not null)
-            {
-                variant.Stok -= stockUnits;
-            }
-
-            product.Stok -= stockUnits;
-            db.StockHistories.Add(new NeverfadePos.Api.Entities.StockHistory
-            {
-                TenantId = transaction.TenantId,
-                ProdukId = product.Id,
-                ProdukNama = product.Nama,
-                ProductVariantId = item.ProductVariantId,
-                VariantSku = item.VariantSku,
-                VariantLabel = item.VariantLabel,
-                Tipe = "transaksi",
-                Jumlah = -stockUnits,
-                StokAkhir = product.Stok,
-                Keterangan = $"Transaksi {transaction.NoTrx}",
-                User = transaction.Kasir
-            });
         }
 
         if (transaction.CustomerId.HasValue)
