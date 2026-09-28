@@ -16,6 +16,11 @@ public sealed class WahaClient(
         string sessionName,
         CancellationToken cancellationToken = default)
     {
+        if (!_options.Enabled)
+        {
+            return null;
+        }
+
         using var request = CreateRequest(
             HttpMethod.Get,
             $"api/sessions/{Uri.EscapeDataString(sessionName)}");
@@ -37,6 +42,8 @@ public sealed class WahaClient(
         string sessionName,
         CancellationToken cancellationToken = default)
     {
+        RequireEnabled();
+
         var current = await GetSessionAsync(
             sessionName,
             cancellationToken);
@@ -107,6 +114,8 @@ public sealed class WahaClient(
         string sessionName,
         CancellationToken cancellationToken = default)
     {
+        RequireEnabled();
+
         using var request = CreateRequest(
             HttpMethod.Get,
             $"api/{Uri.EscapeDataString(sessionName)}/auth/qr?format=image");
@@ -141,6 +150,8 @@ public sealed class WahaClient(
         string text,
         CancellationToken cancellationToken = default)
     {
+        RequireEnabled();
+
         using var request = CreateRequest(
             HttpMethod.Post,
             "api/sendText");
@@ -162,6 +173,11 @@ public sealed class WahaClient(
         string sessionName,
         CancellationToken cancellationToken = default)
     {
+        if (!_options.Enabled)
+        {
+            return;
+        }
+
         using var request = CreateRequest(
             HttpMethod.Post,
             $"api/sessions/{Uri.EscapeDataString(sessionName)}/logout");
@@ -171,6 +187,15 @@ public sealed class WahaClient(
             request,
             cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    private void RequireEnabled()
+    {
+        if (!_options.Enabled)
+        {
+            throw new InvalidOperationException(
+                "WhatsApp delivery dinonaktifkan untuk environment ini.");
+        }
     }
 
     private HttpRequestMessage CreateRequest(
