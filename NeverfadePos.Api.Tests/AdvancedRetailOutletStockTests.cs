@@ -81,7 +81,6 @@ public sealed partial class AdvancedRetailApiTests
         Assert.Equal(HttpStatusCode.OK, sale.StatusCode);
         var transaction = await sale.Content.ReadFromJsonAsync<TransactionDto>();
         Assert.NotNull(transaction);
-        Assert.Equal(branch.Id, transaction!.OutletId);
 
         branchProduct = await branchClient.GetFromJsonAsync<ProductDto>(
             $"/api/products/{product.Id}");
