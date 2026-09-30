@@ -183,6 +183,8 @@ builder.Services.AddScoped<IOutletService, OutletService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IKaryawanService, KaryawanService>();
 builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
+builder.Services.AddScoped<NeverfadePos.Api.Services.Stock.IStockBalanceService,
+    NeverfadePos.Api.Services.Stock.StockBalanceService>();
 builder.Services.AddScoped<IJobService, JobService>();
 builder.Services.AddScoped<IAbsensiService, AbsensiService>();
 builder.Services.AddScoped<IAttendanceManagementService, AttendanceManagementService>();

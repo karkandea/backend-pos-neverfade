@@ -6,13 +6,15 @@ using NeverfadePos.Api.DTOs.Transaction;
 using NeverfadePos.Api.Entities;
 using NeverfadePos.Api.Services.Retail;
 using NeverfadePos.Api.Services.Sales;
+using NeverfadePos.Api.Services.Stock;
 
 namespace NeverfadePos.Api.Services.Transaction;
 
 public sealed class TransactionService(
     AppDbContext db,
     CurrentUser currentUser,
-    IRetailSaleResolver retailSaleResolver)
+    IRetailSaleResolver retailSaleResolver,
+    IStockBalanceService stockBalances)
     : ITransactionService
 {
     public async Task<List<TransactionDto>> GetAllAsync(
@@ -412,50 +414,14 @@ public sealed class TransactionService(
                     item.Product,
                     item.Quantity);
 
-            if (item.Variant is not null)
-            {
-                item.Variant.Stok -= stockUnits;
-            }
-
-            item.Product.Stok -=
-                stockUnits;
-
-            db.StockHistories.Add(
-                new NeverfadePos.Api.Entities.StockHistory
-                {
-                    TenantId =
-                        currentUser.TenantId.Value,
-
-                    ProdukId =
-                        item.Product.Id,
-
-                    ProdukNama =
-                        item.Product.Nama,
-
-                    ProductVariantId =
-                        item.Variant?.Id,
-
-                    VariantSku =
-                        item.Variant?.Sku ?? string.Empty,
-
-                    VariantLabel =
-                        item.Variant?.Label ?? string.Empty,
-
-                    Tipe =
-                        "transaksi",
-
-                    Jumlah =
-                        -stockUnits,
-
-                    StokAkhir =
-                        item.Product.Stok,
-
-                    Keterangan =
-                        $"Transaksi {noTrx}",
-
-                    User =
-                        currentUser.Username ?? ""
-                });
+            await stockBalances.AdjustAsync(
+                item.Product,
+                item.Variant,
+                -stockUnits,
+                "transaksi",
+                $"Transaksi {noTrx}",
+                currentUser.Username ?? string.Empty,
+                cancellationToken);
         }
 
         if (customer is not null)

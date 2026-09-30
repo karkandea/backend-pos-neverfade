@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.Entities;
+using NeverfadePos.Api.Services.Stock;
 using ProductEntity = NeverfadePos.Api.Entities.Product;
 
 namespace NeverfadePos.Api.Services.Retail;
@@ -15,6 +16,8 @@ public sealed record RetailSaleItemResolution(
     decimal UnitPrice,
     Guid? PriceLevelId,
     string PriceLevelName,
+    int AvailableStock,
+    int? VariantAvailableStock,
     decimal Subtotal);
 
 public interface IRetailSaleResolver
@@ -29,7 +32,9 @@ public interface IRetailSaleResolver
         CancellationToken cancellationToken = default);
 }
 
-public sealed class RetailSaleResolver(AppDbContext db) : IRetailSaleResolver
+public sealed class RetailSaleResolver(
+    AppDbContext db,
+    IStockBalanceService stockBalances) : IRetailSaleResolver
 {
     public async Task<RetailSaleItemResolution> ResolveAsync(
         Guid productId,
@@ -40,8 +45,8 @@ public sealed class RetailSaleResolver(AppDbContext db) : IRetailSaleResolver
         bool enforceStock,
         CancellationToken cancellationToken = default)
     {
-        var product = await db.Products
-            .FirstOrDefaultAsync(x => x.Id == productId, cancellationToken)
+        var product = await db.Products.FirstOrDefaultAsync(
+            x => x.Id == productId, cancellationToken)
             ?? throw new KeyNotFoundException($"Product {productId} tidak ditemukan.");
 
         var resolvedQuantity = ProductQuantityRules.Resolve(
@@ -51,61 +56,46 @@ public sealed class RetailSaleResolver(AppDbContext db) : IRetailSaleResolver
             : 1;
 
         ProductVariant? variant = null;
-        var hasActiveVariants = await db.ProductVariants
-            .AnyAsync(x => x.ProductId == product.Id && x.Active, cancellationToken);
-
+        var hasActiveVariants = await db.ProductVariants.AnyAsync(
+            x => x.ProductId == product.Id && x.Active, cancellationToken);
         if (hasActiveVariants && !productVariantId.HasValue)
-        {
-            throw Invalid(
-                "PRODUCT_VARIANT_REQUIRED",
+            throw Invalid("PRODUCT_VARIANT_REQUIRED",
                 $"Pilih varian untuk produk {product.Nama}.");
-        }
 
         if (productVariantId.HasValue)
         {
             if (product.Type != ProductTypes.Goods || !product.TracksStock)
-            {
-                throw Invalid(
-                    "PRODUCT_VARIANT_NOT_SUPPORTED",
+                throw Invalid("PRODUCT_VARIANT_NOT_SUPPORTED",
                     "Varian hanya dapat digunakan untuk barang yang melacak stok.");
-            }
 
-            variant = await db.ProductVariants
-                .FirstOrDefaultAsync(
-                    x => x.Id == productVariantId.Value && x.ProductId == product.Id,
-                    cancellationToken)
-                ?? throw Invalid(
-                    "PRODUCT_VARIANT_INVALID",
+            variant = await db.ProductVariants.FirstOrDefaultAsync(
+                x => x.Id == productVariantId.Value && x.ProductId == product.Id,
+                cancellationToken)
+                ?? throw Invalid("PRODUCT_VARIANT_INVALID",
                     "Varian tidak sesuai dengan produk yang dipilih.");
-
             if (!variant.Active)
-            {
                 throw Invalid("PRODUCT_VARIANT_INACTIVE", "Varian produk sedang nonaktif.");
-            }
-
-            if (enforceStock && variant.Stok < resolvedLegacyQty)
-            {
-                throw Invalid(
-                    "PRODUCT_VARIANT_STOCK_INSUFFICIENT",
-                    $"Stok varian {product.Nama} {variant.Label} tidak mencukupi.");
-            }
-        }
-        else if (enforceStock)
-        {
-            ProductQuantityRules.Validate(product, resolvedQuantity, enforceStock: true);
         }
 
-        if (enforceStock && product.TracksStock && product.Stok < resolvedLegacyQty)
-        {
-            throw Invalid(
-                "PRODUCT_STOCK_INSUFFICIENT",
-                $"Stok produk {product.Nama} tidak mencukupi.");
-        }
+        var availableStock = product.TracksStock
+            ? await stockBalances.GetProductAvailableUnitsAsync(product.Id, cancellationToken)
+            : int.MaxValue;
+        int? variantAvailableStock = variant is null
+            ? null
+            : await stockBalances.GetVariantAvailableUnitsAsync(
+                product.Id, variant.Id, cancellationToken);
+
+        if (enforceStock && product.TracksStock && availableStock < resolvedLegacyQty)
+            throw Invalid("PRODUCT_STOCK_INSUFFICIENT",
+                $"Stok produk {product.Nama} di outlet aktif tidak mencukupi.");
+        if (enforceStock && variant is not null &&
+            variantAvailableStock.GetValueOrDefault() < resolvedLegacyQty)
+            throw Invalid("PRODUCT_VARIANT_STOCK_INSUFFICIENT",
+                $"Stok varian {product.Nama} {variant.Label} di outlet aktif tidak mencukupi.");
 
         var basePrice = Money(variant?.HargaJual ?? product.HargaJual);
         var variantId = variant?.Id;
-        var candidates = await db.ProductPrices
-            .AsNoTracking()
+        var candidates = await db.ProductPrices.AsNoTracking()
             .Include(x => x.PriceLevel)
             .Where(x =>
                 x.ProductId == product.Id &&
@@ -113,50 +103,30 @@ public sealed class RetailSaleResolver(AppDbContext db) : IRetailSaleResolver
                 x.PriceLevel.Active &&
                 (x.ProductVariantId == null || x.ProductVariantId == variantId))
             .Select(x => new RetailPriceCandidate(
-                x.PriceLevelId,
-                x.PriceLevel!.Name,
-                x.PriceLevel.SortOrder,
-                x.ProductVariantId,
-                x.MinQuantity,
-                x.UnitPrice))
+                x.PriceLevelId, x.PriceLevel!.Name, x.PriceLevel.SortOrder,
+                x.ProductVariantId, x.MinQuantity, x.UnitPrice))
             .ToListAsync(cancellationToken);
 
         RetailPriceResolution price;
         if (requestedPriceLevelId.HasValue)
         {
             if (!RetailPricingRules.TryResolveManual(
-                    basePrice,
-                    variant?.Id,
-                    requestedPriceLevelId.Value,
-                    candidates,
-                    out price))
-            {
-                throw Invalid(
-                    "PRICE_LEVEL_NOT_AVAILABLE",
+                basePrice, variant?.Id, requestedPriceLevelId.Value, candidates, out price))
+                throw Invalid("PRICE_LEVEL_NOT_AVAILABLE",
                     "Level harga yang dipilih tidak tersedia untuk item ini.");
-            }
         }
         else
         {
             price = RetailPricingRules.ResolveAutomatic(
-                basePrice,
-                resolvedQuantity,
-                variant?.Id,
-                candidates);
+                basePrice, resolvedQuantity, variant?.Id, candidates);
         }
 
         var unitPrice = Money(price.UnitPrice);
         var subtotal = Money(unitPrice * resolvedQuantity);
         return new RetailSaleItemResolution(
-            product,
-            variant,
-            resolvedLegacyQty,
-            resolvedQuantity,
-            basePrice,
-            unitPrice,
-            price.PriceLevelId,
-            price.PriceLevelName,
-            subtotal);
+            product, variant, resolvedLegacyQty, resolvedQuantity,
+            basePrice, unitPrice, price.PriceLevelId, price.PriceLevelName,
+            availableStock, variantAvailableStock, subtotal);
     }
 
     private static decimal Money(decimal value) =>

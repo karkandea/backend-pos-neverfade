@@ -13,6 +13,7 @@ using NeverfadePos.Api.Payments;
 using NeverfadePos.Api.Services.Retail;
 using NeverfadePos.Api.Services.Outlet;
 using NeverfadePos.Api.Services.Sales;
+using NeverfadePos.Api.Services.Stock;
 
 namespace NeverfadePos.Api.Services.Payment;
 
@@ -23,6 +24,8 @@ internal sealed class PaymentService(
     IPaymentModeGate paymentModeGate,
     IRetailSaleResolver retailSaleResolver,
     IOutletExecutionContext outletContext,
+    IOutletExecutionScope outletExecutionScope,
+    IStockBalanceService stockBalances,
     IXenditPaymentProvider xendit,
     IOptions<XenditOptions> xenditOptions)
     : IPaymentService
@@ -441,6 +444,12 @@ internal sealed class PaymentService(
 
         if (webhook.Event == "payment.capture")
         {
+            var paymentOutletId = payment.Transaction?.OutletId
+                ?? throw new PaymentApiException(
+                    StatusCodes.Status409Conflict,
+                    "PAYMENT_OUTLET_REQUIRED",
+                    "Payment tidak memiliki outlet transaksi.");
+            using var paymentOutletScope = outletExecutionScope.Begin(paymentOutletId);
             await ApplySuccessfulPaymentAsync(
                 payment,
                 webhook,
@@ -486,6 +495,22 @@ internal sealed class PaymentService(
         }
 
         var transaction = payment.Transaction!;
+        if (outletContext.OutletId.HasValue &&
+            outletContext.OutletId.Value != transaction.OutletId)
+        {
+            throw new PaymentApiException(
+                StatusCodes.Status409Conflict,
+                "PAYMENT_OUTLET_CONFLICT",
+                "Outlet payment tidak sesuai dengan outlet transaksi.");
+        }
+
+        using var stockOutletScope = outletContext.OutletId.HasValue
+            ? null
+            : outletExecutionScope.Begin(
+                transaction.OutletId ?? throw new PaymentApiException(
+                    StatusCodes.Status409Conflict,
+                    "PAYMENT_OUTLET_MISSING",
+                    "Transaksi payment tidak memiliki outlet."));
 
         foreach (var item in transaction.Items)
         {
@@ -529,43 +554,26 @@ internal sealed class PaymentService(
                         "PAYMENT_VARIANT_CONFLICT",
                         "Varian transaksi tidak lagi tersedia.");
 
-                if (variant.Stok < stockUnits)
-                {
-                    throw new PaymentApiException(
-                        StatusCodes.Status409Conflict,
-                        "PAYMENT_VARIANT_STOCK_CONFLICT",
-                        $"Stok varian {product.Nama} {item.VariantLabel} tidak mencukupi untuk finalisasi payment.");
-                }
             }
 
-            if (product.Stok < stockUnits)
+            try
+            {
+                await stockBalances.AdjustAsync(
+                    product,
+                    variant,
+                    -stockUnits,
+                    "transaksi",
+                    $"Transaksi {transaction.NoTrx}",
+                    transaction.Kasir,
+                    cancellationToken);
+            }
+            catch (TenantApiException exception)
             {
                 throw new PaymentApiException(
                     StatusCodes.Status409Conflict,
                     "PAYMENT_STOCK_CONFLICT",
-                    $"Stok produk {product.Nama} tidak mencukupi untuk finalisasi payment.");
+                    exception.Message);
             }
-
-            if (variant is not null)
-            {
-                variant.Stok -= stockUnits;
-            }
-
-            product.Stok -= stockUnits;
-            db.StockHistories.Add(new NeverfadePos.Api.Entities.StockHistory
-            {
-                TenantId = transaction.TenantId,
-                ProdukId = product.Id,
-                ProdukNama = product.Nama,
-                ProductVariantId = item.ProductVariantId,
-                VariantSku = item.VariantSku,
-                VariantLabel = item.VariantLabel,
-                Tipe = "transaksi",
-                Jumlah = -stockUnits,
-                StokAkhir = product.Stok,
-                Keterangan = $"Transaksi {transaction.NoTrx}",
-                User = transaction.Kasir
-            });
         }
 
         if (transaction.CustomerId.HasValue)
