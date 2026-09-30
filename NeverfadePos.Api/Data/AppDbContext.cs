@@ -48,7 +48,9 @@ public class AppDbContext : DbContext
     public DbSet<SharedPosSession> SharedPosSessions => Set<SharedPosSession>();
     public DbSet<TenantAuditEvent> TenantAuditEvents => Set<TenantAuditEvent>();
     public DbSet<StockHistory> StockHistories => Set<StockHistory>();
+    public DbSet<StockBalance> StockBalances => Set<StockBalance>();
     public DbSet<SaleQuote> SaleQuotes => Set<SaleQuote>();
+    public DbSet<Job> Jobs => Set<Job>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<TransactionItem> TransactionItems => Set<TransactionItem>();
     public DbSet<Payment> Payments => Set<Payment>();
@@ -155,6 +157,15 @@ public class AppDbContext : DbContext
 
         foreach (var entry in ChangeTracker
             .Entries<Transaction>()
+            .Where(x =>
+                x.State == EntityState.Added &&
+                !x.Entity.OutletId.HasValue))
+        {
+            entry.Entity.OutletId = outletId.Value;
+        }
+
+        foreach (var entry in ChangeTracker
+            .Entries<StockHistory>()
             .Where(x =>
                 x.State == EntityState.Added &&
                 !x.Entity.OutletId.HasValue))

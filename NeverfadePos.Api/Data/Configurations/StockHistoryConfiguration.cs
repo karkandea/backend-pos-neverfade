@@ -13,7 +13,7 @@ public class StockHistoryConfiguration : IEntityTypeConfiguration<StockHistory>
         builder.HasKey(x => x.Id);
 
         builder.HasIndex(x => x.TenantId);
-        builder.HasIndex(x => new { x.TenantId, x.ProdukId });
+        builder.HasIndex(x => new { x.TenantId, x.OutletId, x.ProdukId });
 
         builder.Property(x => x.ProdukNama)
             .HasMaxLength(200)

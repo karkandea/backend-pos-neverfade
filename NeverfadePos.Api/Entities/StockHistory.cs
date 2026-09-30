@@ -4,6 +4,8 @@ namespace NeverfadePos.Api.Entities;
 
 public class StockHistory : BaseEntity
 {
+    public Guid? OutletId { get; set; }
+
     public Guid ProdukId { get; set; }
 
     public string ProdukNama { get; set; } = string.Empty;

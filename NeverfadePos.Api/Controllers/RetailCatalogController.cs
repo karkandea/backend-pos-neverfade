@@ -9,6 +9,7 @@ namespace NeverfadePos.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[RequireOutletScope]
 [RequireCapability(TenantCapabilities.ProductVariants)]
 [RequireCapability(TenantCapabilities.MultiPricing)]
 [Route("api/retail/catalog")]

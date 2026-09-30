@@ -8,7 +8,7 @@ public static class RolePermissionCatalog
     private static readonly string[] Cashier =
     [
         "pos.sell", "products.read", "customers.search", "customers.create",
-        "transactions.read", "attendance.self", "outlets.read",
+        "transactions.read", "attendance.self", "outlets.read", "job.read",
         "restaurant.tables.read", "restaurant.orders.operate", "restaurant.kitchen.operate",
         "laundry.orders.operate"
     ];
@@ -28,8 +28,8 @@ public static class RolePermissionCatalog
             "owner" => [..Manager, "finance.read", "finance.manage", "tenant.manage"],
             "admin" => Manager,
             "kasir" => Cashier,
-            "dapur" => ["outlets.read", "restaurant.kitchen.operate"],
-            "laundry_operator" => ["outlets.read", "laundry.work.operate"],
+            "dapur" => ["outlets.read", "restaurant.kitchen.operate", "job.read"],
+            "laundry_operator" => ["outlets.read", "laundry.work.operate", "job.read"],
             _ => Array.Empty<string>()
         };
 

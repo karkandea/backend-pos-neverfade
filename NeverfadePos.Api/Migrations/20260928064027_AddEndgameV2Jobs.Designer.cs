@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NeverfadePos.Api.Data;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NeverfadePos.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260928064027_AddEndgameV2Jobs")]
+    partial class AddEndgameV2Jobs
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1913,92 +1916,6 @@ namespace NeverfadePos.Api.Migrations
                     b.ToTable("shared_pos_sessions", (string)null);
                 });
 
-            modelBuilder.Entity("NeverfadePos.Api.Entities.StockBalance", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("AsOf")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal>("Available")
-                        .HasPrecision(20, 6)
-                        .HasColumnType("numeric(20,6)");
-
-                    b.Property<decimal>("AverageCost")
-                        .HasPrecision(20, 6)
-                        .HasColumnType("numeric(20,6)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("LotId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("OnHand")
-                        .HasPrecision(20, 6)
-                        .HasColumnType("numeric(20,6)");
-
-                    b.Property<Guid>("OutletId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ProductVariantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("Quarantine")
-                        .HasPrecision(20, 6)
-                        .HasColumnType("numeric(20,6)");
-
-                    b.Property<decimal>("Reserved")
-                        .HasPrecision(20, 6)
-                        .HasColumnType("numeric(20,6)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OutletId");
-
-                    b.HasIndex("ProductId");
-
-                    b.HasIndex("ProductVariantId");
-
-                    b.HasIndex("TenantId", "OutletId", "ProductId")
-                        .IsUnique()
-                        .HasFilter("\"ProductVariantId\" IS NULL AND \"LotId\" IS NULL");
-
-                    b.HasIndex("TenantId", "OutletId", "ProductId", "ProductVariantId")
-                        .IsUnique()
-                        .HasFilter("\"ProductVariantId\" IS NOT NULL AND \"LotId\" IS NULL");
-
-                    b.HasIndex("TenantId", "OutletId", "ProductId", "ProductVariantId", "LotId")
-                        .IsUnique()
-                        .HasFilter("\"LotId\" IS NOT NULL");
-
-                    b.ToTable("stock_balances", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_stock_balances_Available", "\"Available\" >= 0");
-
-                            t.HasCheckConstraint("CK_stock_balances_AvailableFormula", "\"Available\" = \"OnHand\" - \"Reserved\" - \"Quarantine\"");
-
-                            t.HasCheckConstraint("CK_stock_balances_OnHand", "\"OnHand\" >= 0");
-
-                            t.HasCheckConstraint("CK_stock_balances_Quarantine", "\"Quarantine\" >= 0");
-
-                            t.HasCheckConstraint("CK_stock_balances_Reserved", "\"Reserved\" >= 0");
-
-                            t.HasCheckConstraint("CK_stock_balances_Version", "\"Version\" > 0");
-                        });
-                });
-
             modelBuilder.Entity("NeverfadePos.Api.Entities.StockHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2015,9 +1932,6 @@ namespace NeverfadePos.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
-
-                    b.Property<Guid?>("OutletId")
-                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("ProductVariantId")
                         .HasColumnType("uuid");
@@ -2062,7 +1976,7 @@ namespace NeverfadePos.Api.Migrations
 
                     b.HasIndex("TenantId");
 
-                    b.HasIndex("TenantId", "OutletId", "ProdukId");
+                    b.HasIndex("TenantId", "ProdukId");
 
                     b.ToTable("stock_histories", (string)null);
                 });
@@ -3325,32 +3239,6 @@ namespace NeverfadePos.Api.Migrations
                     b.Navigation("Tenant");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("NeverfadePos.Api.Entities.StockBalance", b =>
-                {
-                    b.HasOne("NeverfadePos.Api.Entities.Outlet", "Outlet")
-                        .WithMany()
-                        .HasForeignKey("OutletId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("NeverfadePos.Api.Entities.Product", "Product")
-                        .WithMany()
-                        .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("NeverfadePos.Api.Entities.ProductVariant", "ProductVariant")
-                        .WithMany()
-                        .HasForeignKey("ProductVariantId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("Outlet");
-
-                    b.Navigation("Product");
-
-                    b.Navigation("ProductVariant");
                 });
 
             modelBuilder.Entity("NeverfadePos.Api.Entities.StockHistory", b =>
