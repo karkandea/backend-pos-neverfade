@@ -18,6 +18,9 @@ public sealed class RetailCatalogService(
     private Guid TenantId => currentUser.TenantId
         ?? throw new UnauthorizedAccessException();
 
+    private bool CanReadCost =>
+        currentUser.Role is "owner" or "admin";
+
     public async Task<RetailCatalogDto> GetCatalogAsync(
         string? search,
         string? kategori,
@@ -60,7 +63,7 @@ public sealed class RetailCatalogService(
         {
             PriceLevels = levels,
             Products = products.Select(x => MapCatalogProduct(
-                x, productStocks.GetValueOrDefault(x.Id), variantStocks)).ToList()
+                x, productStocks.GetValueOrDefault(x.Id), variantStocks, CanReadCost)).ToList()
         };
     }
 
@@ -76,7 +79,7 @@ public sealed class RetailCatalogService(
         var stocks = await stockBalances.GetVariantAvailableUnitsAsync(
             variants.Select(x => x.Id).ToArray(), cancellationToken);
         return variants.Select(x => MapVariant(
-            x, stocks.GetValueOrDefault(x.Id))).ToList();
+            x, stocks.GetValueOrDefault(x.Id), CanReadCost)).ToList();
     }
 
     public async Task<ProductVariantDto> CreateVariantAsync(
@@ -128,7 +131,7 @@ public sealed class RetailCatalogService(
         await db.SaveChangesAsync(cancellationToken);
         return MapVariant(entity,
             await stockBalances.GetVariantAvailableUnitsAsync(
-                product.Id, entity.Id, cancellationToken));
+                product.Id, entity.Id, cancellationToken), CanReadCost);
     }
 
     public async Task<ProductVariantDto> UpdateVariantAsync(
@@ -176,7 +179,7 @@ public sealed class RetailCatalogService(
         entity.Active = request.Active;
 
         await db.SaveChangesAsync(cancellationToken);
-        return MapVariant(entity, outletStock);
+        return MapVariant(entity, outletStock, CanReadCost);
     }
 
     public async Task<ProductVariantDto> AdjustVariantStockAsync(
@@ -222,7 +225,7 @@ public sealed class RetailCatalogService(
             request.Keterangan?.Trim() ?? string.Empty,
             currentUser.Username ?? string.Empty, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        return MapVariant(entity, newStock);
+        return MapVariant(entity, newStock, CanReadCost);
     }
 
     public async Task DeleteVariantAsync(
@@ -459,14 +462,15 @@ public sealed class RetailCatalogService(
     private static RetailCatalogProductDto MapCatalogProduct(
         ProductEntity product,
         int outletStock,
-        IReadOnlyDictionary<Guid, int> variantStocks) => new()
+        IReadOnlyDictionary<Guid, int> variantStocks,
+        bool includeCost) => new()
     {
         Id = product.Id,
         Kode = product.Kode,
         Barcode = product.Barcode,
         Nama = product.Nama,
         Kategori = product.Kategori,
-        HargaModal = product.HargaModal,
+        HargaModal = includeCost ? product.HargaModal : null,
         HargaJual = product.HargaJual,
         Stok = outletStock,
         Supplier = product.Supplier,
@@ -476,7 +480,8 @@ public sealed class RetailCatalogService(
         TracksStock = product.TracksStock,
         QuantityPrecision = product.QuantityPrecision,
         Variants = product.Variants.OrderBy(x => x.Label)
-            .Select(x => MapVariant(x, variantStocks.GetValueOrDefault(x.Id))).ToList(),
+            .Select(x => MapVariant(
+                x, variantStocks.GetValueOrDefault(x.Id), includeCost)).ToList(),
         Prices = product.Prices
             .Where(x => x.PriceLevel is not null)
             .OrderBy(x => x.MinQuantity)
@@ -485,7 +490,7 @@ public sealed class RetailCatalogService(
             .ToList()
     };
 
-    private static ProductVariantDto MapVariant(ProductVariant x, int outletStock) => new()
+    private static ProductVariantDto MapVariant(ProductVariant x, int outletStock, bool includeCost) => new()
     {
         Id = x.Id,
         ProductId = x.ProductId,
@@ -498,7 +503,7 @@ public sealed class RetailCatalogService(
         Option2Value = x.Option2Value,
         Option3Name = x.Option3Name,
         Option3Value = x.Option3Value,
-        HargaModal = x.HargaModal,
+        HargaModal = includeCost ? x.HargaModal : null,
         HargaJual = x.HargaJual,
         Stok = outletStock,
         Active = x.Active

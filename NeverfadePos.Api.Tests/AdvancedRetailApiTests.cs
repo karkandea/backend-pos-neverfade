@@ -55,14 +55,62 @@ public sealed partial class AdvancedRetailApiTests
         using var kasir = await AuthClientAsync(factory, "kasir");
         var product = await CreateProductAsync(owner, "TSHIRT-ROLE");
 
+        var ownerCatalog = await owner.GetAsync("/api/retail/catalog");
+        Assert.Equal(HttpStatusCode.OK, ownerCatalog.StatusCode);
+        Assert.Contains(
+            "\"hargaModal\"",
+            await ownerCatalog.Content.ReadAsStringAsync(),
+            StringComparison.OrdinalIgnoreCase);
+
         var catalog = await kasir.GetAsync("/api/retail/catalog");
         Assert.Equal(HttpStatusCode.OK, catalog.StatusCode);
+        Assert.DoesNotContain(
+            "\"hargaModal\"",
+            await catalog.Content.ReadAsStringAsync(),
+            StringComparison.OrdinalIgnoreCase);
+
+        var variantResponse = await owner.PostAsJsonAsync(
+            "/api/retail/variants",
+            NewVariant(product.Id, "TSHIRT-ROLE-BLK-M", "Black / M", 5));
+        Assert.Equal(HttpStatusCode.OK, variantResponse.StatusCode);
+
+        var cashierVariants = await kasir.GetAsync(
+            $"/api/retail/variants?productId={product.Id}");
+        Assert.Equal(HttpStatusCode.OK, cashierVariants.StatusCode);
+        Assert.DoesNotContain(
+            "\"hargaModal\"",
+            await cashierVariants.Content.ReadAsStringAsync(),
+            StringComparison.OrdinalIgnoreCase);
 
         var mutate = await kasir.PostAsJsonAsync(
             "/api/retail/variants",
-            NewVariant(product.Id, "TSHIRT-ROLE-BLK-M", "Black / M", 5));
+            NewVariant(product.Id, "TSHIRT-ROLE-BLK-L", "Black / L", 5));
 
         Assert.Equal(HttpStatusCode.Forbidden, mutate.StatusCode);
+    }
+
+    [Fact]
+    public async Task Cashier_CannotSpoofSalePrice_ThroughDirectApi()
+    {
+        await using var factory = new AdvancedRetailFactory();
+        await EnableFashionRetailAsync(factory);
+        using var owner = await AuthClientAsync(factory, "owner");
+        using var kasir = await AuthClientAsync(factory, "kasir");
+        var setup = await CreatePricedVariantAsync(owner, "TSHIRT-CASHIER-SPOOF");
+
+        var spoofed = await PostCashAsync(
+            kasir, setup.Product.Id, setup.Variant.Id, null, 6, 1m);
+
+        Assert.Equal(HttpStatusCode.BadRequest, spoofed.StatusCode);
+        await AssertStockAsync(
+            factory, setup.Product.Id, setup.Variant.Id, 10, 10);
+
+        var valid = await PostCashAsync(
+            kasir, setup.Product.Id, setup.Variant.Id, null, 6, 80m);
+
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+        await AssertStockAsync(
+            factory, setup.Product.Id, setup.Variant.Id, 4, 4);
     }
 
     [Fact]

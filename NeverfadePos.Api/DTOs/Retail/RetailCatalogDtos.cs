@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace NeverfadePos.Api.DTOs.Retail;
 
 public sealed class RetailCatalogProductDto
@@ -7,7 +9,8 @@ public sealed class RetailCatalogProductDto
     public string Barcode { get; set; } = string.Empty;
     public string Nama { get; set; } = string.Empty;
     public string Kategori { get; set; } = string.Empty;
-    public decimal HargaModal { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? HargaModal { get; set; }
     public decimal HargaJual { get; set; }
     public int Stok { get; set; }
     public string Supplier { get; set; } = string.Empty;

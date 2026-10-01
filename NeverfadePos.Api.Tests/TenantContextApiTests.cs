@@ -195,11 +195,26 @@ public sealed class TenantContextApiTests
         Assert.Equal(HttpStatusCode.Forbidden,
             (await client.GetAsync("/api/laporan/summary")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
+            (await client.GetAsync("/api/finance/bank-account")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await client.PutAsJsonAsync("/api/finance/bank-account", new
+            {
+                bankName = "BCA",
+                accountNumber = "1234567890",
+                accountHolderName = "Kasir Tidak Boleh"
+            })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
             (await client.PutAsJsonAsync($"/api/customers/{Guid.NewGuid()}", new { })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await client.DeleteAsync($"/api/customers/{Guid.NewGuid()}")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK,
-            (await client.GetAsync("/api/products")).StatusCode);
+
+        var productCatalog = await client.GetAsync("/api/products");
+        Assert.Equal(HttpStatusCode.OK, productCatalog.StatusCode);
+        Assert.DoesNotContain(
+            "\"hargaModal\"",
+            await productCatalog.Content.ReadAsStringAsync(),
+            StringComparison.OrdinalIgnoreCase);
+
         Assert.Equal(HttpStatusCode.OK,
             (await client.GetAsync("/api/customers?search=test")).StatusCode);
     }

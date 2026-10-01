@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NeverfadePos.Api.DTOs.Retail;
 
@@ -15,6 +16,7 @@ public sealed class ProductVariantDto
     public string Option2Value { get; set; } = string.Empty;
     public string Option3Name { get; set; } = string.Empty;
     public string Option3Value { get; set; } = string.Empty;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public decimal? HargaModal { get; set; }
     public decimal? HargaJual { get; set; }
     public int Stok { get; set; }

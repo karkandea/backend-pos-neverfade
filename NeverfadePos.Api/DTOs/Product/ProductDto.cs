@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using NeverfadePos.Api.Entities;
 
 namespace NeverfadePos.Api.DTOs.Product;
@@ -14,7 +15,8 @@ public sealed class ProductDto
 
     public string Kategori { get; set; } = string.Empty;
 
-    public decimal HargaModal { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public decimal? HargaModal { get; set; }
 
     public decimal HargaJual { get; set; }
 

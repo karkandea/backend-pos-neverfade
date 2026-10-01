@@ -16,6 +16,9 @@ public sealed class ProductService(
     IStockBalanceService stockBalances)
     : IProductService
 {
+    private bool CanReadCost =>
+        currentUser.Role is "owner" or "admin";
+
     public async Task<List<ProductDto>> GetAllAsync(
         string? search,
         string? kategori,
@@ -212,14 +215,14 @@ public sealed class ProductService(
         return new ProductProfile(ProductTypes.Service, false, quantityPrecision, 0);
     }
 
-    private static ProductDto MapToDto(ProductEntity x, int stock) => new()
+    private ProductDto MapToDto(ProductEntity x, int stock) => new()
     {
         Id = x.Id,
         Kode = x.Kode,
         Barcode = x.Barcode,
         Nama = x.Nama,
         Kategori = x.Kategori,
-        HargaModal = x.HargaModal,
+        HargaModal = CanReadCost ? x.HargaModal : null,
         HargaJual = x.HargaJual,
         Stok = stock,
         Supplier = x.Supplier,
