@@ -10,6 +10,8 @@ public class Product : BaseEntity
 
     public string Nama { get; set; } = string.Empty;
 
+    public bool Active { get; set; } = true;
+
     public string Kategori { get; set; } = string.Empty;
 
     public decimal HargaModal { get; set; }

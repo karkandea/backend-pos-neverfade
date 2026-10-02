@@ -90,6 +90,8 @@ public sealed class UserService(
         entity.Username = username;
         entity.Role = role;
         entity.Active = request.Active;
+        // Any credential, role, or status management invalidates old JWTs.
+        entity.TokenVersion++;
         if (!string.IsNullOrWhiteSpace(request.Password))
             entity.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
 
@@ -127,6 +129,53 @@ public sealed class UserService(
         await RevokeSharedSessionsAsync(id, cancellationToken);
         db.Users.Remove(entity);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task RevokeAsync(Guid id, string? idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (!currentUser.TenantId.HasValue || !currentUser.UserId.HasValue)
+            throw new UnauthorizedAccessException();
+        var key = idempotencyKey?.Trim();
+        if (string.IsNullOrWhiteSpace(key) || key.Length is < 8 or > 128)
+            throw new TenantApiException(400, "IDEMPOTENCY_KEY_REQUIRED",
+                "Idempotency-Key 8 sampai 128 karakter wajib disertakan.");
+        var user = await db.Users.SingleOrDefaultAsync(x => x.Id == id, cancellationToken)
+            ?? throw new KeyNotFoundException("User tidak ditemukan.");
+        if (user.Role == "owner" && currentUser.Role != "owner")
+            throw new TenantApiException(403, "OWNER_ACCOUNT_PROTECTED",
+                "Admin tidak dapat mencabut sesi owner.");
+        var previous = await db.UserSessionRevocations.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.IdempotencyKey == key, cancellationToken);
+        if (previous is not null)
+        {
+            if (previous.UserId != id)
+                throw new TenantApiException(409, "IDEMPOTENCY_KEY_REUSED",
+                    "Kunci yang sama tidak boleh digunakan untuk pengguna berbeda.");
+            return;
+        }
+        user.TokenVersion++;
+        db.UserSessionRevocations.Add(new NeverfadePos.Api.Entities.UserSessionRevocation
+        {
+            TenantId = currentUser.TenantId.Value,
+            UserId = id,
+            IdempotencyKey = key,
+        });
+        await RevokeSharedSessionsAsync(id, cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            throw new TenantApiException(409, "IDEMPOTENCY_KEY_REUSED",
+                "Kunci sudah diproses. Periksa status sesi sebelum mengulang.");
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new TenantApiException(409, "REVOCATION_CONFLICT",
+                "Versi sesi berubah. Periksa ulang status sebelum mengulangi request.");
+        }
     }
 
     private async Task RevokeSharedSessionsAsync(Guid userId, CancellationToken cancellationToken)

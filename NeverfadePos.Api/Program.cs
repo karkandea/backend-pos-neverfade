@@ -240,6 +240,9 @@ builder.Services
                              principal?.FindFirst("sub")?.Value;
                 var role = principal?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ??
                            principal?.FindFirst("role")?.Value;
+                var rawTokenVersion = principal?.FindFirst("token_version")?.Value;
+                var tokenVersion = long.TryParse(rawTokenVersion, out var version) && version >= 0
+                    ? version : 0;
 
                 if (principal?.HasClaim("scope", "tenant") != true ||
                     !Guid.TryParse(tenantId, out var parsedTenantId) ||
@@ -256,7 +259,7 @@ builder.Services
                 var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
                 var userValid = await db.Users.IgnoreQueryFilters().AsNoTracking().AnyAsync(
                     x => x.Id == parsedUserId && x.TenantId == parsedTenantId &&
-                         x.Active && x.Role == role,
+                         x.Active && x.Role == role && x.TokenVersion == tokenVersion,
                     context.HttpContext.RequestAborted);
                 // Existing TenantStatusMiddleware retains its documented 403 on suspension.
                 if (!userValid)

@@ -25,6 +25,8 @@ public sealed class ProductService(
         CancellationToken cancellationToken = default)
     {
         var query = db.Products.AsNoTracking();
+        if (currentUser.Role is not ("owner" or "admin"))
+            query = query.Where(x => x.Active);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -50,6 +52,8 @@ public sealed class ProductService(
         var product = await db.Products.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
             ?? throw new KeyNotFoundException("Product tidak ditemukan.");
+        if (!product.Active && currentUser.Role is not ("owner" or "admin"))
+            throw new KeyNotFoundException("Product tidak ditemukan.");
         var stock = await stockBalances.GetProductAvailableUnitsAsync(id, cancellationToken);
         return MapToDto(product, stock);
     }
@@ -76,6 +80,7 @@ public sealed class ProductService(
             Kategori = request.Kategori,
             HargaModal = request.HargaModal,
             HargaJual = request.HargaJual,
+            Active = request.Active,
             Stok = 0,
             Supplier = request.Supplier,
             Satuan = request.Satuan,
@@ -146,6 +151,8 @@ public sealed class ProductService(
         entity.Kategori = request.Kategori;
         entity.HargaModal = request.HargaModal;
         entity.HargaJual = request.HargaJual;
+        if (request.Active.HasValue)
+            entity.Active = request.Active.Value;
         entity.Supplier = request.Supplier;
         entity.Satuan = request.Satuan;
         entity.Deskripsi = request.Deskripsi;
@@ -230,6 +237,7 @@ public sealed class ProductService(
         Deskripsi = x.Deskripsi,
         Type = x.Type,
         TracksStock = x.TracksStock,
+        Active = x.Active,
         QuantityPrecision = x.QuantityPrecision,
         CreatedAt = x.CreatedAt
     };

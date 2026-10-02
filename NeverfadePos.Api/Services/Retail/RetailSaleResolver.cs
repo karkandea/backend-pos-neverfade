@@ -49,6 +49,9 @@ public sealed class RetailSaleResolver(
             x => x.Id == productId, cancellationToken)
             ?? throw new KeyNotFoundException($"Product {productId} tidak ditemukan.");
 
+        if (!product.Active)
+            throw Invalid("PRODUCT_INACTIVE", "Produk sedang nonaktif dan tidak dapat dijual.");
+
         var resolvedQuantity = ProductQuantityRules.Resolve(
             product, legacyQty, quantity, enforceStock: false);
         var resolvedLegacyQty = product.Type == ProductTypes.Goods

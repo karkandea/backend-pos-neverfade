@@ -44,6 +44,9 @@ public sealed class UpdateProductDto
 
     public bool TracksStock { get; set; } = true;
 
+    // Omitted by legacy frontend means keep existing state.
+    public bool? Active { get; set; }
+
     [Range(0, 3)]
     public int QuantityPrecision { get; set; }
 }

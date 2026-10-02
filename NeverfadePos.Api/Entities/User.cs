@@ -14,6 +14,9 @@ public class User : BaseEntity
 
     public bool Active { get; set; } = true;
 
+    // Token epoch; a revoke prevents existing signed JWTs from being reused.
+    public long TokenVersion { get; set; }
+
     public Tenant? Tenant { get; set; }
     public ICollection<UserOutletAssignment> OutletAssignments { get; set; } = new List<UserOutletAssignment>();
 

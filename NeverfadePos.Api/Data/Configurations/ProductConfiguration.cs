@@ -39,6 +39,7 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(x => x.Satuan).HasMaxLength(50);
         builder.Property(x => x.Deskripsi).HasMaxLength(1000);
         builder.Property(x => x.Type).HasMaxLength(20).IsRequired();
+        builder.Property(x => x.Active).HasDefaultValue(true);
 
         builder.Property(x => x.HargaModal).HasPrecision(18, 2);
         builder.Property(x => x.HargaJual).HasPrecision(18, 2);
