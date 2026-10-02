@@ -20,6 +20,9 @@ public class TransactionItem : BaseEntity
 
     public decimal BasePrice { get; set; }
 
+    // Immutable at sale write; null means historical or missing cost data.
+    public decimal? CostUnitSnapshot { get; set; }
+
     public Guid? PriceLevelId { get; set; }
 
     public string PriceLevelName { get; set; } = string.Empty;

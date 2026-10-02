@@ -37,6 +37,8 @@ public class TransactionItemConfiguration : IEntityTypeConfiguration<Transaction
         builder.Property(x => x.BasePrice)
             .HasPrecision(18,2);
 
+        builder.Property(x => x.CostUnitSnapshot).HasPrecision(18, 2);
+
         builder.Property(x => x.VariantSku)
             .HasMaxLength(100);
 

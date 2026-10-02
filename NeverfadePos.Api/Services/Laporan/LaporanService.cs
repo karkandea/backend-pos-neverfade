@@ -123,8 +123,38 @@ public sealed class LaporanService(
                 .CountAsync(
                     cancellationToken);
 
+        // Do not infer historic COGS from today's editable catalog price.
+        var costs = db.TransactionItems.AsNoTracking().Where(x =>
+            x.Transaction != null &&
+            x.Transaction.Status == TransactionStatuses.Paid &&
+            x.Transaction.CreatedAt >= startUtc &&
+            x.Transaction.CreatedAt < endUtc);
+        if (visibleOutletIds is not null)
+            costs = costs.Where(x =>
+                x.Transaction!.OutletId.HasValue &&
+                visibleOutletIds.Contains(x.Transaction.OutletId.Value));
+
+        var costIncomplete =
+            await costs.AnyAsync(x => !x.CostUnitSnapshot.HasValue, cancellationToken) ||
+            await query.AnyAsync(x => !x.Items.Any(), cancellationToken);
+
+        decimal? estimatedGrossProfit = null;
+        if (!costIncomplete)
+        {
+            var cogs = await costs.SumAsync(x => (decimal?)(
+                x.CostUnitSnapshot!.Value *
+                (x.Quantity > 0m ? x.Quantity : x.Qty)), cancellationToken) ?? 0m;
+            // Gross profit is after discounts and before tax. Not accounting net profit.
+            var netSalesBeforeTax = await query.SumAsync(
+                x => (decimal?)(x.Subtotal - x.DiscAmt), cancellationToken) ?? 0m;
+            estimatedGrossProfit = Math.Round(
+                netSalesBeforeTax - cogs, 2, MidpointRounding.AwayFromZero);
+        }
+
         return new LaporanSummaryDto
         {
+            CostIncomplete = costIncomplete,
+            EstimatedGrossProfit = estimatedGrossProfit,
             Omzet = omzet,
 
             Transaksi = transaksi,
