@@ -39,6 +39,26 @@ public sealed class OpsHealthController(AppDbContext db) : ControllerBase
         return Ok(Envelope(data, now));
     }
 
+    [HttpGet("alerts")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<ActionResult<ApiResponseEnvelope<List<OpsAlertDto>>>> GetAlerts(
+        [FromQuery] int limit = 30, CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 100)
+            throw new TenantApiException(400, "INVALID_ALERT_LIMIT",
+                "Batas alert harus antara 1 sampai 100.");
+        var records = await db.OpsAlerts.AsNoTracking()
+            .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
+            .Take(limit)
+            .Select(x => new OpsAlertDto
+            {
+                Id = x.Id, SourceKind = x.SourceKind, SourceId = x.SourceId,
+                CorrelationId = x.CorrelationId, State = x.State, CreatedAt = x.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
+        return Ok(Envelope(records, DateTime.UtcNow));
+    }
+
     [HttpGet("audit")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<ActionResult<ApiResponseEnvelope<List<OpsAuditItemDto>>>> GetAudit(
@@ -83,6 +103,16 @@ public sealed class OpsHealthDto
     // Explicitly unimplemented until CORE-26 outbox/worker development.
     public bool OutboxMetricsAvailable => false;
     public bool WorkerDispatchAvailable => false;
+}
+
+public sealed class OpsAlertDto
+{
+    public Guid Id { get; set; }
+    public string SourceKind { get; set; } = string.Empty;
+    public Guid SourceId { get; set; }
+    public string CorrelationId { get; set; } = string.Empty;
+    public string State { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
 }
 
 public sealed class OpsAuditItemDto

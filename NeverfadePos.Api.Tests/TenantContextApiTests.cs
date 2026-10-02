@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Controllers;
+using NeverfadePos.Api.Services.Observability;
 using NeverfadePos.Api.DTOs.Auth;
 using NeverfadePos.Api.DTOs.Tenant;
 using NeverfadePos.Api.DTOs.Outlet;
@@ -206,6 +207,23 @@ public sealed class TenantContextApiTests
                 ProcessingStatus = "needs_review"
             });
             await db.SaveChangesAsync();
+
+            var scanner = scope.ServiceProvider.GetRequiredService<OpsAlertScanner>();
+            Assert.Equal(3, await scanner.ScanAsync(DateTime.UtcNow));
+            Assert.Equal(0, await scanner.ScanAsync(DateTime.UtcNow));
+            Assert.Equal(3, await db.OpsAlerts.CountAsync());
+        }
+        // Simulate process restart: new DI scope and DbContext, same tenant.
+        await using (var replayScope = factory.Services.CreateAsyncScope())
+        {
+            var db = replayScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.AsNoTracking().Select(x => x.Id).SingleAsync();
+            using var trusted = replayScope.ServiceProvider
+                .GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "OPS_RESTART_TEST");
+            var scanner = replayScope.ServiceProvider.GetRequiredService<OpsAlertScanner>();
+            Assert.Equal(0, await scanner.ScanAsync(DateTime.UtcNow));
+            Assert.Equal(3, await db.OpsAlerts.CountAsync());
         }
 
         var response = await owner.GetAsync("/api/v2/ops/health");
@@ -219,6 +237,15 @@ public sealed class TenantContextApiTests
         Assert.Equal(1, envelope.Data.UnprocessedWebhooks);
         Assert.False(envelope.Data.OutboxMetricsAvailable);
         Assert.False(envelope.Data.WorkerDispatchAvailable);
+        var alertResponse = await owner.GetAsync("/api/v2/ops/alerts?limit=10");
+        Assert.Equal(HttpStatusCode.OK, alertResponse.StatusCode);
+        var alertList = await alertResponse.Content
+            .ReadFromJsonAsync<ApiResponseEnvelope<List<OpsAlertDto>>>();
+        Assert.NotNull(alertList);
+        Assert.Equal(3, alertList.Data.Count);
+        Assert.Equal(3, alertList.Data.Select(x => x.CorrelationId).Distinct().Count());
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cashier.GetAsync("/api/v2/ops/alerts")).StatusCode);
         Assert.True(response.Headers.TryGetValues("X-Correlation-Id", out var ids));
         Assert.Equal(Assert.Single(ids!), envelope.Meta.CorrelationId);
         Assert.Equal(HttpStatusCode.Forbidden,
