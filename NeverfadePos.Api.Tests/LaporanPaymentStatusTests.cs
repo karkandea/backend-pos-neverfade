@@ -155,6 +155,30 @@ public sealed class LaporanPaymentStatusTests
             (await report.GetSummaryAsync("harian", default, oct1.AddDays(-1), oct1.AddDays(-1))).Omzet);
     }
 
+    [Fact]
+    public async Task MissingHistoricalCost_ReturnsIncompleteInsteadOfInventedProfit()
+    {
+        var tenantId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"cost-snapshot-{Guid.NewGuid():N}").Options;
+        await using var db = new AppDbContext(options, CreateContext(tenantId));
+        var sale = NewTransaction(tenantId, TransactionStatuses.Paid, "COST-QA", 100m);
+        db.Transactions.Add(sale);
+        await db.SaveChangesAsync();
+        var report = CreateReportService(db, tenantId);
+
+        var missing = await report.GetSummaryAsync("harian");
+        Assert.True(missing.CostIncomplete);
+        Assert.Null(missing.EstimatedGrossProfit);
+
+        var item = Assert.Single(sale.Items);
+        item.CostUnitSnapshot = 60m;
+        await db.SaveChangesAsync();
+        var complete = await report.GetSummaryAsync("harian");
+        Assert.False(complete.CostIncomplete);
+        Assert.Equal(40m, complete.EstimatedGrossProfit);
+    }
+
     private static LaporanService CreateReportService(AppDbContext db, Guid tenantId, Guid? selectedOutletId = null)
     {
         var accessor = new HttpContextAccessor

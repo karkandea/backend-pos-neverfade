@@ -145,6 +145,7 @@ internal sealed class PaymentService(
                     ProductId = item.Product.Id,
                     Nama = item.Product.Nama,
                     HargaJual = item.HargaJual,
+                    CostUnitSnapshot = NeverfadePos.Api.Common.CostSnapshot.Resolve(item.Product, item.Variant),
                     ProductVariantId = item.Variant?.Id,
                     VariantSku = item.Variant?.Sku ?? string.Empty,
                     VariantLabel = item.Variant?.Label ?? string.Empty,

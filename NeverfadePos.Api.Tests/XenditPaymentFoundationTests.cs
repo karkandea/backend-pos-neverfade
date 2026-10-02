@@ -124,6 +124,44 @@ public sealed class XenditPaymentFoundationTests
         Assert.Empty(manipulatedFactory.Provider.Requests);
     }
 
+    [Fact]
+    public async Task QrisSale_CapturesImmutableCostSnapshot()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var product = await GetProductAsync(client);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.Select(x => x.Id).SingleAsync();
+            using var trusted = scope.ServiceProvider
+                .GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "QA_SET_COST");
+            var tracked = await db.Products.SingleAsync(x => x.Id == product.Id);
+            tracked.HargaModal = 40m;
+            await db.SaveChangesAsync();
+        }
+
+        var payment = await CreatePaymentAsync(client, product);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.Select(x => x.Id).SingleAsync();
+            using var trusted = scope.ServiceProvider
+                .GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "QA_VERIFY_SNAPSHOT");
+            var item = await db.TransactionItems
+                .SingleAsync(x => x.TransactionId == payment.TransactionId);
+            Assert.Equal(40m, item.CostUnitSnapshot);
+            var tracked = await db.Products.SingleAsync(x => x.Id == product.Id);
+            tracked.HargaModal = 90m;
+            await db.SaveChangesAsync();
+            var preserved = await db.TransactionItems.AsNoTracking()
+                .SingleAsync(x => x.TransactionId == payment.TransactionId);
+            Assert.Equal(40m, preserved.CostUnitSnapshot);
+        }
+    }
+
     [Theory]
     [InlineData(-1, 0)]
     [InlineData(101, 0)]

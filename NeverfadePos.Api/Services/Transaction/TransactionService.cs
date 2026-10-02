@@ -362,6 +362,9 @@ public sealed class TransactionService(
                     HargaJual =
                         item.HargaJual,
 
+                    CostUnitSnapshot =
+                        NeverfadePos.Api.Common.CostSnapshot.Resolve(item.Product, item.Variant),
+
                     ProductVariantId =
                         item.Variant?.Id,
 
