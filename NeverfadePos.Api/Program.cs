@@ -12,6 +12,7 @@ using NeverfadePos.Api.Services.Auth;
 using NeverfadePos.Api.Services.Customer;
 using NeverfadePos.Api.Services.Karyawan;
 using NeverfadePos.Api.Services.Job;
+using NeverfadePos.Api.Services.Observability;
 using NeverfadePos.Api.Services.Laporan;
 using NeverfadePos.Api.Services.Product;
 using NeverfadePos.Api.Services.PlatformAuth;
@@ -186,6 +187,9 @@ builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
 builder.Services.AddScoped<NeverfadePos.Api.Services.Stock.IStockBalanceService,
     NeverfadePos.Api.Services.Stock.StockBalanceService>();
 builder.Services.AddScoped<IJobService, JobService>();
+builder.Services.AddScoped<OpsAlertScanner>();
+if (builder.Configuration.GetValue<bool>("OpsAlerts:Enabled"))
+    builder.Services.AddHostedService<OpsAlertWorker>();
 builder.Services.AddScoped<IAbsensiService, AbsensiService>();
 builder.Services.AddScoped<IAttendanceManagementService, AttendanceManagementService>();
 builder.Services.AddScoped<SharedPosSecurity>();
