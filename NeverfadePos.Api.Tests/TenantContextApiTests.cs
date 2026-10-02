@@ -9,6 +9,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NeverfadePos.Api.Data;
+using NeverfadePos.Api.Common;
+using NeverfadePos.Api.Controllers;
 using NeverfadePos.Api.DTOs.Auth;
 using NeverfadePos.Api.DTOs.Tenant;
 using NeverfadePos.Api.DTOs.Outlet;
@@ -145,6 +147,95 @@ public sealed class TenantContextApiTests
         });
         Assert.Equal(HttpStatusCode.OK, inherited.StatusCode);
         Assert.Null((await inherited.Content.ReadFromJsonAsync<OutletDto>())!.TimeZoneId);
+    }
+
+    [Fact]
+    public async Task OpsHealth_ReportsStalledJobWithCorrelationAndOwnerOnly()
+    {
+        await using var factory = new TenantContextFactory();
+        using var owner = factory.CreateClient();
+        using var cashier = factory.CreateClient();
+        var login = (await (await owner.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        owner.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.Token);
+        var cashierLogin = (await (await cashier.PostAsJsonAsync("/api/auth/login",
+            new { username = "kasir", password = "kasir123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        cashier.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", cashierLogin.Token);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = await db.Tenants.AsNoTracking().Select(x => x.Id).SingleAsync();
+            using var trusted = scope.ServiceProvider
+                .GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "OPS_HEALTH_TEST");
+            db.Jobs.Add(new Job
+            {
+                TenantId = tenantId,
+                Kind = "export",
+                State = "queued",
+                UpdatedAt = DateTime.UtcNow.AddMinutes(-30)
+            });
+            db.TenantAuditEvents.Add(new TenantAuditEvent
+            {
+                TenantId = tenantId, EventType = "QA_OPS_HEALTH",
+                Metadata = "private-metadata-do-not-serve"
+            });
+            var transaction = new Transaction
+            {
+                TenantId = tenantId, NoTrx = "OPS-QA-001",
+                Kasir = "QA", Status = TransactionStatuses.PendingPayment
+            };
+            db.Transactions.Add(transaction);
+            var payment = new Payment
+            {
+                TenantId = tenantId, TransactionId = transaction.Id,
+                ProviderReferenceId = "ops-qa", Status = PaymentConstants.StatusCreating,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-30)
+            };
+            db.Payments.Add(payment);
+            db.PaymentWebhookEvents.Add(new PaymentWebhookEvent
+            {
+                TenantId = tenantId, PaymentId = payment.Id,
+                ProviderEventKey = "ops-qa-event", EventType = "payment.failure",
+                ProviderPaymentId = "ops-qa-provider",
+                ProcessingStatus = "needs_review"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var response = await owner.GetAsync("/api/v2/ops/health");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        var envelope = await response.Content.ReadFromJsonAsync<ApiResponseEnvelope<OpsHealthDto>>();
+        Assert.NotNull(envelope);
+        Assert.True(envelope.Data.NeedsAttention);
+        Assert.Equal(1, envelope.Data.StalledJobs);
+        Assert.Equal(1, envelope.Data.StalledPayments);
+        Assert.Equal(1, envelope.Data.UnprocessedWebhooks);
+        Assert.False(envelope.Data.OutboxMetricsAvailable);
+        Assert.False(envelope.Data.WorkerDispatchAvailable);
+        Assert.True(response.Headers.TryGetValues("X-Correlation-Id", out var ids));
+        Assert.Equal(Assert.Single(ids!), envelope.Meta.CorrelationId);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cashier.GetAsync("/api/v2/ops/health")).StatusCode);
+        using var unauthenticated = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await unauthenticated.GetAsync("/api/v2/ops/health")).StatusCode);
+
+        var audit = await owner.GetAsync("/api/v2/ops/audit?limit=10");
+        Assert.Equal(HttpStatusCode.OK, audit.StatusCode);
+        var body = await audit.Content.ReadAsStringAsync();
+        Assert.Contains("QA_OPS_HEALTH", body);
+        Assert.DoesNotContain("private-metadata-do-not-serve", body);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cashier.GetAsync("/api/v2/ops/audit")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await owner.GetAsync("/api/v2/ops/audit?limit=101")).StatusCode);
     }
 
     [Fact]
