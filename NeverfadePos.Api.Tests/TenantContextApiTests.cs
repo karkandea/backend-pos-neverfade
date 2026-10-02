@@ -99,6 +99,55 @@ public sealed class TenantContextApiTests
     }
 
     [Fact]
+    public async Task OutletTimezone_IsValidatedAndSurvivesLegacyUpdate()
+    {
+        await using var factory = new TenantContextFactory();
+        using var owner = factory.CreateClient();
+        var login = (await (await owner.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        owner.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.Token);
+
+        var createdResponse = await owner.PostAsJsonAsync("/api/outlets", new
+        {
+            code = "WITA-QA", name = "Makassar QA", address = "", phone = "",
+            isDefault = false, timeZoneId = "Asia/Makassar"
+        });
+        Assert.Equal(HttpStatusCode.OK, createdResponse.StatusCode);
+        var created = (await createdResponse.Content.ReadFromJsonAsync<OutletDto>())!;
+        Assert.Equal("Asia/Makassar", created.TimeZoneId);
+        var persisted = (await owner.GetFromJsonAsync<List<OutletDto>>("/api/outlets"))!;
+        Assert.Equal("Asia/Makassar", persisted.Single(x => x.Id == created.Id).TimeZoneId);
+
+        var legacyUpdate = await owner.PutAsJsonAsync($"/api/outlets/{created.Id}", new
+        {
+            code = created.Code, name = "Makassar Updated", address = "",
+            phone = "", isDefault = false, active = true
+        });
+        Assert.Equal(HttpStatusCode.OK, legacyUpdate.StatusCode);
+        var fetchedAfterLegacy = (await owner.GetFromJsonAsync<List<OutletDto>>("/api/outlets"))!;
+        Assert.Equal("Asia/Makassar", fetchedAfterLegacy.Single(x => x.Id == created.Id).TimeZoneId);
+        Assert.Equal("Asia/Makassar",
+            (await legacyUpdate.Content.ReadFromJsonAsync<OutletDto>())!.TimeZoneId);
+
+        var invalid = await owner.PutAsJsonAsync($"/api/outlets/{created.Id}", new
+        {
+            code = created.Code, name = "Makassar Updated", address = "",
+            phone = "", isDefault = false, active = true, timeZoneId = "Invalid/Zone"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+
+        var inherited = await owner.PutAsJsonAsync($"/api/outlets/{created.Id}", new
+        {
+            code = created.Code, name = "Makassar Updated", address = "",
+            phone = "", isDefault = false, active = true, timeZoneId = ""
+        });
+        Assert.Equal(HttpStatusCode.OK, inherited.StatusCode);
+        Assert.Null((await inherited.Content.ReadFromJsonAsync<OutletDto>())!.TimeZoneId);
+    }
+
+    [Fact]
     public async Task Reports_FilterAllThreeSurfacesByAssignedOrSelectedOutlet()
     {
         await using var factory = new TenantContextFactory();

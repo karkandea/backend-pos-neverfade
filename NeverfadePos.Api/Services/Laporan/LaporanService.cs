@@ -47,11 +47,28 @@ public sealed class LaporanService(
         return [selected];
     }
 
-    private static readonly TimeZoneInfo Wib =
-        TimeZoneInfo.FindSystemTimeZoneById(
-            OperatingSystem.IsWindows()
-                ? "SE Asia Standard Time"
-                : "Asia/Jakarta");
+    // A selected outlet may override the tenant timezone. Null overrides inherit tenant policy.
+    // Owner aggregate reports still use the tenant timezone until mixed-zone aggregation
+    // is implemented; never treat that aggregate as an outlet-local business date.
+    private async Task<TimeZoneInfo> ResolveReportZoneAsync(CancellationToken cancellationToken)
+    {
+        var tenantZone = await db.Tenants.AsNoTracking()
+            .Where(x => x.Id == currentUser.TenantId)
+            .Select(x => x.TimeZoneId)
+            .FirstOrDefaultAsync(cancellationToken);
+        var zoneId = string.IsNullOrWhiteSpace(tenantZone) ? "Asia/Jakarta" : tenantZone;
+        var selected = httpContextAccessor.HttpContext?.Request.Headers["X-Outlet-Id"].ToString();
+        if (Guid.TryParse(selected, out var outletId) && outletId != Guid.Empty)
+        {
+            var overrideId = await db.Outlets.AsNoTracking()
+                .Where(x => x.Id == outletId)
+                .Select(x => x.TimeZoneId)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(overrideId))
+                zoneId = overrideId;
+        }
+        return TimeZoneInfo.FindSystemTimeZoneById(zoneId);
+    }
 
     private static readonly string[] Hari =
     {
@@ -70,9 +87,10 @@ public sealed class LaporanService(
         DateOnly? startDate = null,
         DateOnly? endDate = null)
     {
-        var startUtc = GetStartUtc(period, startDate);
-        var endUtc = GetEndUtc(endDate);
         var visibleOutletIds = await VisibleOutletIdsAsync(cancellationToken);
+        var zone = await ResolveReportZoneAsync(cancellationToken);
+        var startUtc = GetStartUtc(period, zone, startDate);
+        var endUtc = GetEndUtc(endDate, zone);
 
         var query = db.Transactions.AsNoTracking();
         if (visibleOutletIds is not null)
@@ -134,7 +152,9 @@ public sealed class LaporanService(
             "tahunan" => "tahunan",
             _ => "mingguan"
         };
-        var todayWib = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Wib).Date;
+        var visibleOutletIds = await VisibleOutletIdsAsync(cancellationToken);
+        var zone = await ResolveReportZoneAsync(cancellationToken);
+        var todayWib = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone).Date;
         var custom = startDate.HasValue && endDate.HasValue;
         var customDays = custom ? endDate!.Value.DayNumber - startDate!.Value.DayNumber + 1 : 0;
         var customMonthly = custom && customDays > 31;
@@ -161,14 +181,13 @@ public sealed class LaporanService(
         var startUtc =
             TimeZoneInfo.ConvertTimeToUtc(
                 startWib,
-                Wib);
+                zone);
 
         var endUtc =
             TimeZoneInfo.ConvertTimeToUtc(
                 endWib,
-                Wib);
+                zone);
 
-        var visibleOutletIds = await VisibleOutletIdsAsync(cancellationToken);
         var transactions = db.Transactions.AsNoTracking();
         if (visibleOutletIds is not null)
             transactions = transactions.Where(x => x.OutletId.HasValue && visibleOutletIds.Contains(x.OutletId.Value));
@@ -191,7 +210,7 @@ public sealed class LaporanService(
         var totals = raw
             .GroupBy(x =>
             {
-                var local = ToWibDateTime(x.CreatedAt);
+                var local = ToWibDateTime(x.CreatedAt, zone);
                 if (customMonthly)
                     return (local.Year - startWib.Year) * 12 + local.Month - startWib.Month;
                 if (custom)
@@ -248,9 +267,10 @@ public sealed class LaporanService(
             DateOnly? startDate = null,
             DateOnly? endDate = null)
     {
-        var startUtc = GetStartUtc(period, startDate);
-        var endUtc = GetEndUtc(endDate);
         var visibleOutletIds = await VisibleOutletIdsAsync(cancellationToken);
+        var zone = await ResolveReportZoneAsync(cancellationToken);
+        var startUtc = GetStartUtc(period, zone, startDate);
+        var endUtc = GetEndUtc(endDate, zone);
 
         var items = db.TransactionItems.AsNoTracking();
         if (visibleOutletIds is not null)
@@ -286,7 +306,7 @@ public sealed class LaporanService(
     }
 
     private static DateTime ToWibDateTime(
-        DateTime utc)
+        DateTime utc, TimeZoneInfo zone)
     {
         var normalizedUtc =
             utc.Kind == DateTimeKind.Utc
@@ -298,30 +318,31 @@ public sealed class LaporanService(
         var wib =
             TimeZoneInfo.ConvertTimeFromUtc(
                 normalizedUtc,
-                Wib);
+                zone);
 
         return wib;
     }
 
-    private static DateTime GetEndUtc(DateOnly? customEndDate)
+    private static DateTime GetEndUtc(DateOnly? customEndDate, TimeZoneInfo zone)
     {
         var exclusiveWib = customEndDate.HasValue
             ? customEndDate.Value.AddDays(1).ToDateTime(TimeOnly.MinValue)
-            : TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Wib).Date.AddDays(1);
-        return TimeZoneInfo.ConvertTimeToUtc(exclusiveWib, Wib);
+            : TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone).Date.AddDays(1);
+        return TimeZoneInfo.ConvertTimeToUtc(exclusiveWib, zone);
     }
 
     private static DateTime GetStartUtc(
         string period,
+        TimeZoneInfo zone,
         DateOnly? customStartDate = null)
     {
         if (customStartDate.HasValue)
-            return TimeZoneInfo.ConvertTimeToUtc(customStartDate.Value.ToDateTime(TimeOnly.MinValue), Wib);
+            return TimeZoneInfo.ConvertTimeToUtc(customStartDate.Value.ToDateTime(TimeOnly.MinValue), zone);
 
         var now =
             TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.UtcNow,
-                Wib);
+                zone);
 
         DateTime start =
             period.ToLowerInvariant() switch
@@ -350,6 +371,6 @@ public sealed class LaporanService(
 
         return TimeZoneInfo.ConvertTimeToUtc(
             start,
-            Wib);
+            zone);
     }
 }

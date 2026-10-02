@@ -11,6 +11,7 @@ public sealed class OutletDto
     public string Phone { get; set; } = string.Empty;
     public bool IsDefault { get; set; }
     public bool Active { get; set; }
+    public string? TimeZoneId { get; set; }
 }
 
 public sealed class CreateOutletDto
@@ -30,6 +31,9 @@ public sealed class CreateOutletDto
     public string Phone { get; set; } = string.Empty;
 
     public bool IsDefault { get; set; }
+
+    [MaxLength(64)]
+    public string? TimeZoneId { get; set; }
 }
 
 public sealed class UpdateOutletDto
@@ -51,4 +55,7 @@ public sealed class UpdateOutletDto
     public bool IsDefault { get; set; }
 
     public bool Active { get; set; } = true;
+
+    [MaxLength(64)]
+    public string? TimeZoneId { get; set; }
 }

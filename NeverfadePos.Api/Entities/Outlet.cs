@@ -16,6 +16,9 @@ public sealed class Outlet : BaseEntity
 
     public bool Active { get; set; } = true;
 
+    // Null inherits tenant timezone. Existing outlets remain unchanged.
+    public string? TimeZoneId { get; set; }
+
     public Tenant? Tenant { get; set; }
     public ICollection<UserOutletAssignment> UserAssignments { get; set; } = new List<UserOutletAssignment>();
 
