@@ -106,7 +106,56 @@ public sealed class LaporanPaymentStatusTests
         Assert.All(monthly, item => Assert.Equal(7, item.Date.Length));
     }
 
-    private static LaporanService CreateReportService(AppDbContext db, Guid tenantId)
+    [Fact]
+    public async Task SelectedOutlet_UsesOwnBusinessDateAcrossUtcMidnight()
+    {
+        var tenantId = Guid.NewGuid();
+        var outletId = Guid.NewGuid();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"laporan-wita-{Guid.NewGuid():N}").Options;
+        await using var db = new AppDbContext(options, CreateContext(tenantId));
+        db.Tenants.Add(new Tenant
+        {
+            Id = tenantId,
+            NamaToko = "Timezone QA",
+            Slug = "timezone-qa",
+            TimeZoneId = "Asia/Jakarta"
+        });
+        db.Outlets.Add(new Outlet
+        {
+            Id = outletId,
+            TenantId = tenantId,
+            Code = "WITA",
+            Name = "Makassar Outlet",
+            IsDefault = true,
+            Active = true,
+            TimeZoneId = "Asia/Makassar"
+        });
+
+        // 16:30 UTC = 00:30 on Oct 1 in WITA, but still Sep 30 in WIB.
+        var octoberWita = NewTransaction(tenantId, TransactionStatuses.Paid, "OCT-WITA", 125m);
+        octoberWita.OutletId = outletId;
+        octoberWita.CreatedAt = new DateTime(2026, 9, 30, 16, 30, 0, DateTimeKind.Utc);
+        var septemberWita = NewTransaction(tenantId, TransactionStatuses.Paid, "SEP-WITA", 900m);
+        septemberWita.OutletId = outletId;
+        septemberWita.CreatedAt = new DateTime(2026, 9, 30, 15, 30, 0, DateTimeKind.Utc);
+        db.Transactions.AddRange(octoberWita, septemberWita);
+        await db.SaveChangesAsync();
+
+        var report = CreateReportService(db, tenantId, outletId);
+        var oct1 = new DateOnly(2026, 10, 1);
+        var summary = await report.GetSummaryAsync("harian", default, oct1, oct1);
+        var chart = await report.GetChartAsync("harian", default, oct1, oct1);
+        var top = await report.GetTopProductsAsync("harian", default, oct1, oct1);
+        Assert.Equal(125m, summary.Omzet);
+        Assert.Equal(1, summary.Transaksi);
+        Assert.Equal(125m, chart.Sum(x => x.Total));
+        Assert.Equal("OCT-WITA", Assert.Single(top).Nama);
+        Assert.Equal(900m,
+            (await report.GetSummaryAsync("harian", default, oct1.AddDays(-1), oct1.AddDays(-1))).Omzet);
+    }
+
+    private static LaporanService CreateReportService(AppDbContext db, Guid tenantId, Guid? selectedOutletId = null)
     {
         var accessor = new HttpContextAccessor
         {
@@ -120,6 +169,8 @@ public sealed class LaporanPaymentStatusTests
                 }, "Test"))
             }
         };
+        if (selectedOutletId.HasValue)
+            accessor.HttpContext!.Request.Headers["X-Outlet-Id"] = selectedOutletId.Value.ToString();
         return new LaporanService(db, new CurrentUser(accessor), accessor);
     }
 

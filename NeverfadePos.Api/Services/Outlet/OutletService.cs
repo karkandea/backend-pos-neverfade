@@ -51,7 +51,8 @@ public sealed class OutletService(
                 Address = x.Address,
                 Phone = x.Phone,
                 IsDefault = x.IsDefault,
-                Active = x.Active
+                Active = x.Active,
+                TimeZoneId = x.TimeZoneId
             })
             .ToListAsync(cancellationToken);
     }
@@ -91,7 +92,8 @@ public sealed class OutletService(
             Address = request.Address.Trim(),
             Phone = request.Phone.Trim(),
             IsDefault = shouldBeDefault,
-            Active = true
+            Active = true,
+            TimeZoneId = ValidateTimeZone(request.TimeZoneId)
         };
 
         db.Outlets.Add(entity);
@@ -168,6 +170,10 @@ public sealed class OutletService(
         entity.Address = request.Address.Trim();
         entity.Phone = request.Phone.Trim();
         entity.Active = request.Active;
+        // Older clients omit this optional field; preserve the existing policy.
+        // An explicit empty string resets the override to tenant timezone.
+        if (request.TimeZoneId is not null)
+            entity.TimeZoneId = ValidateTimeZone(request.TimeZoneId);
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -302,6 +308,27 @@ public sealed class OutletService(
         return name;
     }
 
+    private static string? ValidateTimeZone(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var zone = value.Trim();
+        try
+        {
+            _ = TimeZoneInfo.FindSystemTimeZoneById(zone);
+            return zone;
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            throw new TenantApiException(400, "INVALID_TIMEZONE", "Zona waktu outlet tidak valid.");
+        }
+        catch (InvalidTimeZoneException)
+        {
+            throw new TenantApiException(400, "INVALID_TIMEZONE", "Zona waktu outlet tidak valid.");
+        }
+    }
+
     private static OutletDto Map(
         NeverfadePos.Api.Entities.Outlet outlet)
     {
@@ -313,7 +340,8 @@ public sealed class OutletService(
             Address = outlet.Address,
             Phone = outlet.Phone,
             IsDefault = outlet.IsDefault,
-            Active = outlet.Active
+            Active = outlet.Active,
+            TimeZoneId = outlet.TimeZoneId
         };
     }
 }

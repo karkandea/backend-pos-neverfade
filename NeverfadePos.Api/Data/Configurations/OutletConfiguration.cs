@@ -23,6 +23,7 @@ public sealed class OutletConfiguration : IEntityTypeConfiguration<Outlet>
         builder.Property(x => x.Address).HasMaxLength(500);
         builder.Property(x => x.Phone).HasMaxLength(50);
         builder.Property(x => x.Active).HasDefaultValue(true);
+        builder.Property(x => x.TimeZoneId).HasMaxLength(64);
 
         builder.HasOne(x => x.Tenant)
             .WithMany(x => x.Outlets)
