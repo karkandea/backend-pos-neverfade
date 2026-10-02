@@ -32,6 +32,8 @@ public sealed class ProductDto
 
     public bool TracksStock { get; set; } = true;
 
+    public bool Active { get; set; } = true;
+
     public int QuantityPrecision { get; set; }
 
     public DateTime CreatedAt { get; set; }

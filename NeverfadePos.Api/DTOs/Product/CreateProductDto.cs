@@ -44,6 +44,8 @@ public sealed class CreateProductDto
 
     public bool TracksStock { get; set; } = true;
 
+    public bool Active { get; set; } = true;
+
     [Range(0, 3)]
     public int QuantityPrecision { get; set; }
 }

@@ -125,6 +125,46 @@ public sealed class XenditPaymentFoundationTests
     }
 
     [Fact]
+    public async Task InactiveCatalogProduct_CannotBeSold_AndLegacyUpdateKeepsState()
+    {
+        await using var factory = new PaymentApiFactory();
+        using var owner = await CreateOwnerClientAsync(factory);
+        var product = await GetProductAsync(owner);
+        object Payload(bool? active) => new
+        {
+            kode = product.Kode, barcode = product.Barcode,
+            nama = product.Nama, kategori = product.Kategori,
+            hargaModal = product.HargaModal ?? 0m, hargaJual = product.HargaJual,
+            stok = product.Stok, supplier = product.Supplier, satuan = product.Satuan,
+            deskripsi = product.Deskripsi, type = product.Type,
+            tracksStock = product.TracksStock, quantityPrecision = product.QuantityPrecision,
+            active
+        };
+        var disabled = await owner.PutAsJsonAsync($"/api/products/{product.Id}", Payload(false));
+        Assert.Equal(HttpStatusCode.OK, disabled.StatusCode);
+        var disabledDto = (await disabled.Content.ReadFromJsonAsync<ProductDto>())!;
+        Assert.False(disabledDto.Active);
+
+        // Legacy clients omit the field altogether; they must not silently reactivate.
+        var legacy = await owner.PutAsJsonAsync($"/api/products/{product.Id}", new
+        {
+            kode = product.Kode, barcode = product.Barcode,
+            nama = product.Nama, kategori = product.Kategori,
+            hargaModal = product.HargaModal ?? 0m, hargaJual = product.HargaJual,
+            stok = product.Stok, supplier = product.Supplier, satuan = product.Satuan,
+            deskripsi = product.Deskripsi, type = product.Type,
+            tracksStock = product.TracksStock, quantityPrecision = product.QuantityPrecision
+        });
+        Assert.Equal(HttpStatusCode.OK, legacy.StatusCode);
+        Assert.False((await legacy.Content.ReadFromJsonAsync<ProductDto>())!.Active);
+
+        var attempt = await owner.PostAsJsonAsync("/api/payments/qris", CreateQrisRequest(product));
+        Assert.Equal(HttpStatusCode.BadRequest, attempt.StatusCode);
+        Assert.Contains("PRODUCT_INACTIVE", await attempt.Content.ReadAsStringAsync());
+        Assert.Empty(factory.Provider.Requests);
+    }
+
+    [Fact]
     public async Task QrisSale_CapturesImmutableCostSnapshot()
     {
         await using var factory = new PaymentApiFactory();

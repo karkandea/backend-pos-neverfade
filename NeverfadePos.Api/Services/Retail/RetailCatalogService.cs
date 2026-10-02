@@ -33,6 +33,9 @@ public sealed class RetailCatalogService(
                 .ThenInclude(x => x.PriceLevel)
             .AsQueryable();
 
+        if (currentUser.Role is not ("owner" or "admin"))
+            query = query.Where(x => x.Active);
+
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
@@ -478,6 +481,7 @@ public sealed class RetailCatalogService(
         Deskripsi = product.Deskripsi,
         Type = product.Type,
         TracksStock = product.TracksStock,
+        Active = product.Active,
         QuantityPrecision = product.QuantityPrecision,
         Variants = product.Variants.OrderBy(x => x.Label)
             .Select(x => MapVariant(

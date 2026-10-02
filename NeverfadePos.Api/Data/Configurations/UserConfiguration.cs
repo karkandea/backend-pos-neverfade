@@ -26,6 +26,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.PasswordHash)
             .IsRequired();
 
+        builder.Property(x => x.TokenVersion).HasDefaultValue(0L).IsConcurrencyToken();
         builder.Property(x => x.Role)
             .HasMaxLength(20)
             .IsRequired();

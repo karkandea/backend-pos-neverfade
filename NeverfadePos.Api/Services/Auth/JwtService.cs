@@ -33,6 +33,7 @@ public sealed class JwtService(
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new("scope", "tenant"),
             new("tenant_id", user.TenantId.ToString()),
+            new("token_version", user.TokenVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             new("username", user.Username),
             new("nama", user.Nama),
             new(ClaimTypes.Role, user.Role)

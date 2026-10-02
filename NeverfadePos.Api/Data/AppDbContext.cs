@@ -51,6 +51,7 @@ public class AppDbContext : DbContext
     public DbSet<StockBalance> StockBalances => Set<StockBalance>();
     public DbSet<SaleQuote> SaleQuotes => Set<SaleQuote>();
     public DbSet<Job> Jobs => Set<Job>();
+    public DbSet<UserSessionRevocation> UserSessionRevocations => Set<UserSessionRevocation>();
     public DbSet<OpsAlert> OpsAlerts => Set<OpsAlert>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<TransactionItem> TransactionItems => Set<TransactionItem>();

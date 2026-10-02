@@ -18,6 +18,7 @@ public sealed class RetailCatalogProductDto
     public string Deskripsi { get; set; } = string.Empty;
     public string Type { get; set; } = "goods";
     public bool TracksStock { get; set; }
+    public bool Active { get; set; } = true;
     public int QuantityPrecision { get; set; }
     public List<ProductVariantDto> Variants { get; set; } = new();
     public List<ProductPriceDto> Prices { get; set; } = new();

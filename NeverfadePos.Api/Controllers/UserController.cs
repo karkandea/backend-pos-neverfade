@@ -30,6 +30,15 @@ public sealed class UserController(IUserService userService) : ControllerBase
         return Ok(await userService.UpdateAsync(id, request, cancellationToken));
     }
 
+    [HttpPost("{id:guid}/revoke")]
+    public async Task<IActionResult> Revoke(Guid id,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await userService.RevokeAsync(id, idempotencyKey, cancellationToken);
+        return Ok(new { ok = true });
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {

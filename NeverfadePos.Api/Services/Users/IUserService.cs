@@ -19,4 +19,7 @@ public interface IUserService
     Task DeleteAsync(
         Guid id,
         CancellationToken cancellationToken = default);
+
+    Task RevokeAsync(Guid id, string? idempotencyKey,
+        CancellationToken cancellationToken = default);
 }

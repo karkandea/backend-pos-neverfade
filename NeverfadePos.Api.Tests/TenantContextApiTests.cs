@@ -102,6 +102,84 @@ public sealed class TenantContextApiTests
     }
 
     [Fact]
+    public async Task RevokeSession_IsIdempotentAndBlocksOldJwt_WithoutAdminOwnerPrivilege()
+    {
+        await using var factory = new TenantContextFactory();
+        using var owner = factory.CreateClient();
+        using var admin = factory.CreateClient();
+        using var cashier = factory.CreateClient();
+        async Task<LoginResponseDto> Login(HttpClient client, string name, string password)
+        {
+            var result = await client.PostAsJsonAsync("/api/auth/login", new { username = name, password });
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+            var body = (await result.Content.ReadFromJsonAsync<LoginResponseDto>())!;
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", body.Token);
+            return body;
+        }
+        var ownerLogin = await Login(owner, "owner", "owner123");
+        var adminLogin = await Login(admin, "admin", "admin123");
+        var cashierLogin = await Login(cashier, "kasir", "kasir123");
+        Assert.Equal(HttpStatusCode.OK, (await cashier.GetAsync("/api/auth/me")).StatusCode);
+
+        using var deniedRequest = new HttpRequestMessage(HttpMethod.Post,
+            $"/api/users/{ownerLogin.User.Id}/revoke");
+        deniedRequest.Headers.TryAddWithoutValidation("Idempotency-Key", "revoke-owner-forbidden-1");
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await admin.SendAsync(deniedRequest)).StatusCode);
+
+        using var missing = new HttpRequestMessage(HttpMethod.Post,
+            $"/api/users/{cashierLogin.User.Id}/revoke");
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await owner.SendAsync(missing)).StatusCode);
+        async Task<HttpStatusCode> Revoke(string key)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                $"/api/users/{cashierLogin.User.Id}/revoke");
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", key);
+            return (await owner.SendAsync(request)).StatusCode;
+        }
+        Assert.Equal(HttpStatusCode.OK, await Revoke("revoke-cashier-qa-1"));
+        Assert.Equal(HttpStatusCode.OK, await Revoke("revoke-cashier-qa-1"));
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var user = await db.Users.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(x => x.Id == cashierLogin.User.Id);
+            Assert.Equal(1L, user.TokenVersion);
+        }
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await cashier.GetAsync("/api/auth/me")).StatusCode);
+
+        await Login(cashier, "kasir", "kasir123");
+        Assert.Equal(HttpStatusCode.OK,
+            (await cashier.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, await Revoke("revoke-cashier-qa-2"));
+        // Replaying the original key even after a new revoke cannot rotate new sessions.
+        Assert.Equal(HttpStatusCode.OK, await Revoke("revoke-cashier-qa-1"));
+        using (var wrongTarget = new HttpRequestMessage(HttpMethod.Post,
+            $"/api/users/{adminLogin.User.Id}/revoke"))
+        {
+            wrongTarget.Headers.TryAddWithoutValidation("Idempotency-Key", "revoke-cashier-qa-1");
+            Assert.Equal(HttpStatusCode.Conflict,
+                (await owner.SendAsync(wrongTarget)).StatusCode);
+        }
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var user = await db.Users.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(x => x.Id == cashierLogin.User.Id);
+            Assert.Equal(2L, user.TokenVersion);
+            var tenantId = user.TenantId;
+            using var trusted = scope.ServiceProvider
+                .GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "QA_REVOCATION_LEDGER");
+            Assert.Equal(2, await db.UserSessionRevocations.CountAsync());
+        }
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await cashier.GetAsync("/api/auth/me")).StatusCode);
+    }
+
+    [Fact]
     public async Task OutletTimezone_IsValidatedAndSurvivesLegacyUpdate()
     {
         await using var factory = new TenantContextFactory();
