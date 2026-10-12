@@ -186,6 +186,20 @@ public sealed class TenantContextApiTests
                   recoveryCode = recovery.RecoveryCodes[1] });
         Assert.Equal(HttpStatusCode.OK, secondRecovery.StatusCode);
 
+        // Concurrent reuse of one recovery code must authorize exactly one request.
+        // Optimistic concurrency may reject the loser with 409; a later read sees 401.
+        var parallel = await Task.WhenAll(
+            anonymous.PostAsJsonAsync("/api/auth/login",
+                new { username = "owner", password = "owner123",
+                      recoveryCode = recovery.RecoveryCodes[4] }),
+            anonymous.PostAsJsonAsync("/api/auth/login",
+                new { username = "owner", password = "owner123",
+                      recoveryCode = recovery.RecoveryCodes[4] }));
+        Assert.Single(parallel, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.All(parallel, response =>
+            Assert.Contains(response.StatusCode,
+                new[] { HttpStatusCode.OK, HttpStatusCode.Unauthorized, HttpStatusCode.Conflict }));
+
         for (var attempt = 1; attempt <= 5; attempt++)
         {
             var invalid = await anonymous.PostAsJsonAsync("/api/auth/login",
