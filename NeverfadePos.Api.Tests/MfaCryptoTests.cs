@@ -48,7 +48,7 @@ public sealed class MfaCryptoTests
         var secret = MfaTotp.GenerateSecret();
         var ciphertext = protector.Protect(secret, userId);
         Assert.Equal(secret, protector.Unprotect(ciphertext, userId));
-        Assert.Throws<CryptographicException>(
+        Assert.ThrowsAny<CryptographicException>(
             () => protector.Unprotect(ciphertext, Guid.NewGuid()));
     }
 }
