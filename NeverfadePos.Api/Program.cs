@@ -1,4 +1,7 @@
 using Scalar.AspNetCore;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -119,6 +122,29 @@ builder.Services.AddCors(options =>
 
         policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
     });
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("mfa-enrollment-password", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                context.User.FindFirst("sub")?.Value ??
+                context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(10),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+            context.HttpContext, StatusCodes.Status429TooManyRequests,
+            "MFA_RATE_LIMIT", "Terlalu banyak percobaan. Coba lagi nanti.");
+    };
 });
 
 builder.Services.AddHttpContextAccessor();
@@ -338,8 +364,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
 app.UseCors("Default");
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseMiddleware<NeverfadePos.Api.Middleware.OperatorAccessMiddleware>();
 app.UseMiddleware<TenantStatusMiddleware>();
 app.UseMiddleware<SharedPosSessionMiddleware>();

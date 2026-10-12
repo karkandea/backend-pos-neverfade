@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 using NeverfadePos.Api.DTOs.Auth;
 using NeverfadePos.Api.Services.Auth;
@@ -29,6 +30,7 @@ public sealed class AuthController(IAuthService authService, MfaService mfaServi
         Ok(await mfaService.StatusAsync(ct));
 
     [Authorize]
+    [EnableRateLimiting("mfa-enrollment-password")]
     [HttpPost("mfa/enroll")]
     public async Task<ActionResult<MfaEnrollment>> EnrollMfa(
         MfaEnrollRequest request, CancellationToken ct)

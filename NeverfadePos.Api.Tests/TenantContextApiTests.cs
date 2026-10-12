@@ -247,6 +247,31 @@ public sealed class TenantContextApiTests
     }
 
     [Fact]
+    public async Task MfaEnrollment_IsLimitedPerAuthenticatedAccount()
+    {
+        await using var factory = new TenantContextFactory();
+        using var client = factory.CreateClient();
+
+        var login = (await (await client.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.Token);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var invalid = await client.PostAsJsonAsync("/api/auth/mfa/enroll",
+                new { password = "bad-password" });
+            Assert.Equal(HttpStatusCode.Unauthorized, invalid.StatusCode);
+        }
+
+        var blocked = await client.PostAsJsonAsync("/api/auth/mfa/enroll",
+            new { password = "owner123" });
+        Assert.Equal(HttpStatusCode.TooManyRequests, blocked.StatusCode);
+        Assert.Contains("MFA_RATE_LIMIT", await blocked.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task TenantContext_RejectsAnonymousRequest()
     {
         await using var factory = new TenantContextFactory();
