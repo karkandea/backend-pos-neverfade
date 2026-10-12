@@ -200,6 +200,23 @@ public sealed class TenantContextApiTests
             Assert.Contains(response.StatusCode,
                 new[] { HttpStatusCode.OK, HttpStatusCode.Unauthorized, HttpStatusCode.Conflict }));
 
+        // Previous replay/duplicate attempts deliberately count toward security failures.
+        // Reset ONLY the isolated test fixture to verify the five-failure lockout
+        // threshold from a known clean state, without weakening production policy.
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = (await db.Tenants.AsNoTracking().SingleAsync()).Id;
+            using var trusted = scope.ServiceProvider
+                .GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "TEST_MFA_LOCKOUT_BASELINE");
+            var credential = await db.MfaCredentials
+                .SingleAsync(x => x.UserId == originalLogin.User.Id);
+            credential.FailedAttempts = 0;
+            credential.LockedUntilUtc = null;
+            await db.SaveChangesAsync();
+        }
+
         for (var attempt = 1; attempt <= 5; attempt++)
         {
             var invalid = await anonymous.PostAsJsonAsync("/api/auth/login",
