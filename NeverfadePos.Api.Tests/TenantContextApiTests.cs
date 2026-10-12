@@ -202,6 +202,19 @@ public sealed class TenantContextApiTests
             new { username = "owner", password = "owner123",
                   recoveryCode = recovery.RecoveryCodes[2] });
         Assert.Equal(HttpStatusCode.OK, recovered.StatusCode);
+
+        // A valid same-tenant bearer must not break the login endpoint's
+        // tenant execution scope, even when it belongs to a different user.
+        using var cashier = factory.CreateClient();
+        var cashierSignIn = (await (await cashier.PostAsJsonAsync("/api/auth/login",
+            new { username = "kasir", password = "kasir123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        cashier.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", cashierSignIn.Token);
+        var sameTenantReauth = await cashier.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123",
+                  recoveryCode = recovery.RecoveryCodes[3] });
+        Assert.Equal(HttpStatusCode.OK, sameTenantReauth.StatusCode);
     }
 
     [Fact]

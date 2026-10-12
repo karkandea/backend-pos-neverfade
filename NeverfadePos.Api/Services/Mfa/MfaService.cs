@@ -123,9 +123,9 @@ public sealed class MfaService(
         Guid tenantId, Guid userId, string? totpCode, string? recoveryCode,
         CancellationToken ct)
     {
-        // Anonymous password login has no authenticated tenant principal yet.
-        using var trusted = services.GetRequiredService<ITrustedTenantExecutionScope>()
-            .Begin(tenantId, "MFA_LOGIN_VERIFY");
+        // Login normally runs anonymously. Some API clients also send an existing
+        // bearer token: reuse its tenant scope only when it matches the login target.
+        using var trusted = BeginLoginScope(tenantId);
         var credential = await db.Set<MfaCredential>()
             .SingleOrDefaultAsync(x => x.UserId == userId, ct);
         if (credential?.EnabledAtUtc.HasValue != true)
@@ -183,6 +183,19 @@ public sealed class MfaService(
         credential.FailedAttempts = 0;
         credential.LockedUntilUtc = null;
         await SaveOrConflictAsync(ct);
+    }
+
+    private IDisposable? BeginLoginScope(Guid tenantId)
+    {
+        var context = services.GetRequiredService<ITenantExecutionContext>();
+        if (context.Mode == TenantExecutionMode.None)
+            return services.GetRequiredService<ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "MFA_LOGIN_VERIFY");
+        if (context.Mode == TenantExecutionMode.AuthenticatedTenant &&
+            context.TargetTenantId == tenantId)
+            return null;
+        throw Error(409, "MFA_LOGIN_TENANT_CONFLICT",
+            "Akun yang sedang aktif berasal dari toko lain. Keluar sebelum login ulang.");
     }
 
     private void RequireConfigured()
