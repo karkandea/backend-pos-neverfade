@@ -9,6 +9,7 @@ using NeverfadePos.Api.Middleware;
 using NeverfadePos.Api.Services.Absensi;
 using NeverfadePos.Api.Services.Attendance;
 using NeverfadePos.Api.Services.Auth;
+using NeverfadePos.Api.Services.Mfa;
 using NeverfadePos.Api.Services.Customer;
 using NeverfadePos.Api.Services.Karyawan;
 using NeverfadePos.Api.Services.Job;
@@ -173,6 +174,8 @@ builder.Services.AddScoped<NeverfadePos.Api.Services.Onboarding.ITenantOnboardin
 
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton<MfaSecretProtector>();
+builder.Services.AddScoped<MfaService>();
 builder.Services.AddScoped<IPlatformJwtService, PlatformJwtService>();
 builder.Services.AddScoped<IPlatformAuthService, PlatformAuthService>();
 builder.Services.AddScoped<PlatformUserBootstrapService>();

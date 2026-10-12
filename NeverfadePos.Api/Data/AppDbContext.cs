@@ -26,6 +26,7 @@ public class AppDbContext : DbContext
     public DbSet<PlatformAuditEvent> PlatformAuditEvents => Set<PlatformAuditEvent>();
     public DbSet<PlatformProvisioningRequest> PlatformProvisioningRequests => Set<PlatformProvisioningRequest>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<MfaCredential> MfaCredentials => Set<MfaCredential>();
     public DbSet<Settings> Settings => Set<Settings>();
     public DbSet<Outlet> Outlets => Set<Outlet>();
     public DbSet<UserOutletAssignment> UserOutletAssignments => Set<UserOutletAssignment>();

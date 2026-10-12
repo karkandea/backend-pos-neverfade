@@ -624,6 +624,59 @@ namespace NeverfadePos.Api.Migrations
                     b.ToTable("laundry_work_order_status_history", (string)null);
                 });
 
+            modelBuilder.Entity("NeverfadePos.Api.Entities.MfaCredential", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EnabledAtUtc")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("EnrollmentExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FailedAttempts")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<long>("LastUsedStep")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("LockedUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedSecret")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("RecoveryCodeHashesJson")
+                        .IsRequired()
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("mfa_credentials", (string)null);
+                });
+
             modelBuilder.Entity("NeverfadePos.Api.Entities.OpsAlert", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3016,6 +3069,15 @@ namespace NeverfadePos.Api.Migrations
                     b.Navigation("LaundryWorkOrder");
 
                     b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("NeverfadePos.Api.Entities.MfaCredential", b =>
+                {
+                    b.HasOne("NeverfadePos.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("NeverfadePos.Api.Entities.OpsAlert", b =>
