@@ -1,4 +1,7 @@
 using Scalar.AspNetCore;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -9,6 +12,7 @@ using NeverfadePos.Api.Middleware;
 using NeverfadePos.Api.Services.Absensi;
 using NeverfadePos.Api.Services.Attendance;
 using NeverfadePos.Api.Services.Auth;
+using NeverfadePos.Api.Services.Mfa;
 using NeverfadePos.Api.Services.Customer;
 using NeverfadePos.Api.Services.Karyawan;
 using NeverfadePos.Api.Services.Job;
@@ -120,6 +124,29 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("mfa-enrollment-password", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                context.User.FindFirst("sub")?.Value ??
+                context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(10),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        await NeverfadePos.Api.Common.ApiErrorWriter.WriteAsync(
+            context.HttpContext, StatusCodes.Status429TooManyRequests,
+            "MFA_RATE_LIMIT", "Terlalu banyak percobaan. Coba lagi nanti.");
+    };
+});
+
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.Configure<XenditOptions>(builder.Configuration.GetSection("Xendit"));
@@ -173,6 +200,8 @@ builder.Services.AddScoped<NeverfadePos.Api.Services.Onboarding.ITenantOnboardin
 
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton<MfaSecretProtector>();
+builder.Services.AddScoped<MfaService>();
 builder.Services.AddScoped<IPlatformJwtService, PlatformJwtService>();
 builder.Services.AddScoped<IPlatformAuthService, PlatformAuthService>();
 builder.Services.AddScoped<PlatformUserBootstrapService>();
@@ -335,8 +364,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseMiddleware<ExceptionMiddleware>();
+app.UseRouting();
 app.UseCors("Default");
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseMiddleware<NeverfadePos.Api.Middleware.OperatorAccessMiddleware>();
 app.UseMiddleware<TenantStatusMiddleware>();
 app.UseMiddleware<SharedPosSessionMiddleware>();

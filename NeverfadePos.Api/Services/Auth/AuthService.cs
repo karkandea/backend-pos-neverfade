@@ -4,13 +4,15 @@ using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Auth;
+using NeverfadePos.Api.Services.Mfa;
 
 namespace NeverfadePos.Api.Services.Auth;
 
 public sealed class AuthService(
     AppDbContext db,
     IJwtService jwtService,
-    CurrentUser currentUser)
+    CurrentUser currentUser,
+    MfaService mfaService)
     : IAuthService
 {
     public async Task<LoginResponseDto> LoginAsync(
@@ -46,6 +48,10 @@ public sealed class AuthService(
 
         if (tenantStatus is null)
             throw new UnauthorizedAccessException();
+
+        await mfaService.VerifyLoginAsync(
+            user.TenantId, user.Id, request.TotpCode,
+            request.RecoveryCode, cancellationToken);
 
         var token = jwtService.GenerateToken(user);
 

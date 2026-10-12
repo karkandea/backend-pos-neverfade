@@ -18,6 +18,7 @@ using NeverfadePos.Api.DTOs.Outlet;
 using NeverfadePos.Api.DTOs.Laporan;
 using NeverfadePos.Api.DTOs.Onboarding;
 using NeverfadePos.Api.Entities;
+using NeverfadePos.Api.Services.Mfa;
 using Xunit;
 
 namespace NeverfadePos.Api.Tests;
@@ -88,6 +89,203 @@ public sealed class TenantContextApiTests
         Assert.DoesNotContain("table_orders", context.Capabilities);
         Assert.DoesNotContain("work_orders", context.Capabilities);
         Assert.DoesNotContain("appointments", context.Capabilities);
+    }
+
+    [Fact]
+    public async Task Mfa_EnrollConfirm_RequiresProof_ReplaysAndRecoveryAreSingleUse()
+    {
+        await using var factory = new TenantContextFactory();
+        using var owner = factory.CreateClient();
+        using var anonymous = factory.CreateClient();
+
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await anonymous.GetAsync("/api/auth/mfa/status")).StatusCode);
+        var originalLogin = (await (await owner.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        owner.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", originalLogin.Token);
+        var original = await owner.GetFromJsonAsync<MfaStatus>("/api/auth/mfa/status");
+        Assert.NotNull(original);
+        Assert.True(original.Configured);
+        Assert.False(original.Enabled);
+
+        var badPassword = await owner.PostAsJsonAsync(
+            "/api/auth/mfa/enroll", new { password = "bad" });
+        Assert.Equal(HttpStatusCode.Unauthorized, badPassword.StatusCode);
+        var enrollResponse = await owner.PostAsJsonAsync(
+            "/api/auth/mfa/enroll", new { password = "owner123" });
+        Assert.Equal(HttpStatusCode.OK, enrollResponse.StatusCode);
+        var enrollment = (await enrollResponse.Content.ReadFromJsonAsync<MfaEnrollment>())!;
+        Assert.Equal(32, enrollment.ManualKey.Length);
+        Assert.StartsWith("otpauth://totp/", enrollment.OtpAuthUri);
+
+        byte[] secret;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var record = await db.MfaCredentials.IgnoreQueryFilters()
+                .SingleAsync(x => x.UserId == originalLogin.User.Id);
+            secret = scope.ServiceProvider.GetRequiredService<MfaSecretProtector>()
+                .Unprotect(record.ProtectedSecret, record.UserId);
+            Assert.DoesNotContain(enrollment.ManualKey, record.ProtectedSecret);
+        }
+
+        string CurrentOtp() => MfaTotp.AtStep(secret,
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30);
+        var wrong = await owner.PostAsJsonAsync(
+            "/api/auth/mfa/confirm", new { totpCode = "00000X" });
+        Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
+        var confirmationCode = CurrentOtp();
+        var confirm = await owner.PostAsJsonAsync(
+            "/api/auth/mfa/confirm", new { totpCode = confirmationCode });
+        Assert.Equal(HttpStatusCode.OK, confirm.StatusCode);
+        var recovery = (await confirm.Content.ReadFromJsonAsync<MfaConfirmation>())!;
+        Assert.Equal(8, recovery.RecoveryCodes.Count);
+        Assert.Equal(8, recovery.RecoveryCodes.Distinct().Count());
+        Assert.All(recovery.RecoveryCodes, value =>
+        {
+            Assert.Equal(20, value.Length);
+            Assert.All(value, ch => Assert.True(Uri.IsHexDigit(ch)));
+        });
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var credential = await db.MfaCredentials.IgnoreQueryFilters()
+                .AsNoTracking().SingleAsync(x => x.UserId == originalLogin.User.Id);
+            Assert.DoesNotContain(recovery.RecoveryCodes[0], credential.RecoveryCodeHashesJson);
+            Assert.Equal(8,
+                System.Text.Json.JsonSerializer.Deserialize<List<string>>(
+                    credential.RecoveryCodeHashesJson)!.Count);
+        }
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await owner.GetAsync("/api/auth/me")).StatusCode);
+
+        var passwordOnly = await anonymous.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123" });
+        Assert.Equal(HttpStatusCode.Unauthorized, passwordOnly.StatusCode);
+        Assert.Contains("MFA_REQUIRED", await passwordOnly.Content.ReadAsStringAsync());
+
+        var firstRecovery = await anonymous.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123",
+                  recoveryCode = recovery.RecoveryCodes[0] });
+        Assert.Equal(HttpStatusCode.OK, firstRecovery.StatusCode);
+
+        var duplicateRecovery = await anonymous.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123",
+                  recoveryCode = recovery.RecoveryCodes[0] });
+        Assert.Equal(HttpStatusCode.Unauthorized, duplicateRecovery.StatusCode);
+
+        // The code accepted at enrollment must never be accepted again.
+        var confirmationReplay = await anonymous.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123", totpCode = confirmationCode });
+        Assert.Equal(HttpStatusCode.Unauthorized, confirmationReplay.StatusCode);
+
+        var secondRecovery = await anonymous.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123",
+                  recoveryCode = recovery.RecoveryCodes[1] });
+        Assert.Equal(HttpStatusCode.OK, secondRecovery.StatusCode);
+
+        // Concurrent reuse of one recovery code must authorize exactly one request.
+        // Optimistic concurrency may reject the loser with 409; a later read sees 401.
+        var parallel = await Task.WhenAll(
+            anonymous.PostAsJsonAsync("/api/auth/login",
+                new { username = "owner", password = "owner123",
+                      recoveryCode = recovery.RecoveryCodes[4] }),
+            anonymous.PostAsJsonAsync("/api/auth/login",
+                new { username = "owner", password = "owner123",
+                      recoveryCode = recovery.RecoveryCodes[4] }));
+        Assert.Single(parallel, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.All(parallel, response =>
+            Assert.Contains(response.StatusCode,
+                new[] { HttpStatusCode.OK, HttpStatusCode.Unauthorized, HttpStatusCode.Conflict }));
+
+        // Previous replay/duplicate attempts deliberately count toward security failures.
+        // Reset ONLY the isolated test fixture to verify the five-failure lockout
+        // threshold from a known clean state, without weakening production policy.
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenantId = (await db.Tenants.AsNoTracking().SingleAsync()).Id;
+            using var trusted = scope.ServiceProvider
+                .GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "TEST_MFA_LOCKOUT_BASELINE");
+            var credential = await db.MfaCredentials
+                .SingleAsync(x => x.UserId == originalLogin.User.Id);
+            credential.FailedAttempts = 0;
+            credential.LockedUntilUtc = null;
+            await db.SaveChangesAsync();
+        }
+
+        for (var attempt = 1; attempt <= 5; attempt++)
+        {
+            var invalid = await anonymous.PostAsJsonAsync("/api/auth/login",
+                new { username = "owner", password = "owner123",
+                      recoveryCode = "FFFFFFFFFFFFFFFF" });
+            Assert.Equal(attempt == 5
+                ? HttpStatusCode.TooManyRequests : HttpStatusCode.Unauthorized,
+                invalid.StatusCode);
+        }
+        var locked = await anonymous.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123",
+                  recoveryCode = recovery.RecoveryCodes[2] });
+        Assert.Equal(HttpStatusCode.TooManyRequests, locked.StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using (scope.ServiceProvider.GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin((await db.Tenants.AsNoTracking().SingleAsync()).Id, "TEST_MFA_UNLOCK"))
+            {
+                var credential = await db.MfaCredentials
+                    .SingleAsync(x => x.UserId == originalLogin.User.Id);
+                Assert.NotNull(credential.LockedUntilUtc);
+                credential.LockedUntilUtc = DateTime.UtcNow.AddMinutes(-1);
+                await db.SaveChangesAsync();
+            }
+        }
+        var recovered = await anonymous.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123",
+                  recoveryCode = recovery.RecoveryCodes[2] });
+        Assert.Equal(HttpStatusCode.OK, recovered.StatusCode);
+
+        // A valid same-tenant bearer must not break the login endpoint's
+        // tenant execution scope, even when it belongs to a different user.
+        using var cashier = factory.CreateClient();
+        var cashierSignIn = (await (await cashier.PostAsJsonAsync("/api/auth/login",
+            new { username = "kasir", password = "kasir123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        cashier.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", cashierSignIn.Token);
+        var sameTenantReauth = await cashier.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123",
+                  recoveryCode = recovery.RecoveryCodes[3] });
+        Assert.Equal(HttpStatusCode.OK, sameTenantReauth.StatusCode);
+    }
+
+    [Fact]
+    public async Task MfaEnrollment_IsLimitedPerAuthenticatedAccount()
+    {
+        await using var factory = new TenantContextFactory();
+        using var client = factory.CreateClient();
+
+        var login = (await (await client.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123" })).Content
+            .ReadFromJsonAsync<LoginResponseDto>())!;
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.Token);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var invalid = await client.PostAsJsonAsync("/api/auth/mfa/enroll",
+                new { password = "bad-password" });
+            Assert.Equal(HttpStatusCode.Unauthorized, invalid.StatusCode);
+        }
+
+        var blocked = await client.PostAsJsonAsync("/api/auth/mfa/enroll",
+            new { password = "owner123" });
+        Assert.Equal(HttpStatusCode.TooManyRequests, blocked.StatusCode);
+        Assert.Contains("MFA_RATE_LIMIT", await blocked.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -683,6 +881,7 @@ public sealed class TenantContextApiTests
             builder.UseSetting("PlatformJwt:Key", PlatformKey);
             builder.UseSetting("PlatformJwt:Issuer", PlatformIssuer);
             builder.UseSetting("PlatformJwt:Audience", PlatformAudience);
+            builder.UseSetting("Mfa:EncryptionKey", "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=");
             builder.UseSetting("Payments:Mode", "Disabled");
             builder.UseSetting("PlatformBootstrap:Enabled", "false");
 
@@ -697,6 +896,7 @@ public sealed class TenantContextApiTests
                     ["PlatformJwt:Key"] = PlatformKey,
                     ["PlatformJwt:Issuer"] = PlatformIssuer,
                     ["PlatformJwt:Audience"] = PlatformAudience,
+                    ["Mfa:EncryptionKey"] = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
                     ["Payments:Mode"] = "Disabled",
                     ["PlatformBootstrap:Enabled"] = "false"
                 }));
