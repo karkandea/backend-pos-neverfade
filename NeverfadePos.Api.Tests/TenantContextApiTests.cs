@@ -170,6 +170,38 @@ public sealed class TenantContextApiTests
             new { username = "owner", password = "owner123",
                   recoveryCode = recovery.RecoveryCodes[1] });
         Assert.Equal(HttpStatusCode.OK, secondRecovery.StatusCode);
+
+        for (var attempt = 1; attempt <= 5; attempt++)
+        {
+            var invalid = await anonymous.PostAsJsonAsync("/api/auth/login",
+                new { username = "owner", password = "owner123",
+                      recoveryCode = "FFFFFFFFFFFFFFFF" });
+            Assert.Equal(attempt == 5
+                ? HttpStatusCode.TooManyRequests : HttpStatusCode.Unauthorized,
+                invalid.StatusCode);
+        }
+        var locked = await anonymous.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123",
+                  recoveryCode = recovery.RecoveryCodes[2] });
+        Assert.Equal(HttpStatusCode.TooManyRequests, locked.StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using (scope.ServiceProvider.GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin((await db.Tenants.AsNoTracking().SingleAsync()).Id, "TEST_MFA_UNLOCK"))
+            {
+                var credential = await db.MfaCredentials
+                    .SingleAsync(x => x.UserId == originalLogin.User.Id);
+                Assert.NotNull(credential.LockedUntilUtc);
+                credential.LockedUntilUtc = DateTime.UtcNow.AddMinutes(-1);
+                await db.SaveChangesAsync();
+            }
+        }
+        var recovered = await anonymous.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123",
+                  recoveryCode = recovery.RecoveryCodes[2] });
+        Assert.Equal(HttpStatusCode.OK, recovered.StatusCode);
     }
 
     [Fact]

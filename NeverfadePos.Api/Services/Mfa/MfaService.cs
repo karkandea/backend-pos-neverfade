@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using BCrypt.Net;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using NeverfadePos.Api.Auth;
 using NeverfadePos.Api.Common;
 using NeverfadePos.Api.Data;
@@ -59,7 +60,16 @@ public sealed class MfaService(
         credential.FailedAttempts = 0;
         credential.LockedUntilUtc = null;
         credential.RecoveryCodeHashesJson = "[]";
-        await SaveOrConflictAsync(ct);
+        try
+        {
+            await SaveOrConflictAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg &&
+            pg.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw Error(409, "MFA_ENROLLMENT_CONFLICT",
+                "Aktivasi autentikator sedang berlangsung. Muat ulang status.");
+        }
 
         var manual = MfaTotp.EncodeBase32(secret);
         var label = Uri.EscapeDataString("Neverfade POS:" + user.Username);
@@ -85,6 +95,9 @@ public sealed class MfaService(
         if (!matched.HasValue)
         {
             await RecordFailedProofAsync(credential, ct);
+            if (credential.LockedUntilUtc > DateTime.UtcNow)
+                throw Error(429, "MFA_RATE_LIMIT",
+                    "Terlalu banyak percobaan. Coba nanti.");
             throw Error(401, "MFA_INVALID", "Kode autentikator tidak sesuai.");
         }
 
@@ -161,7 +174,11 @@ public sealed class MfaService(
         if (!success)
         {
             await RecordFailedProofAsync(credential, ct);
-            throw Error(401, "MFA_INVALID", "Kode autentikator atau pemulihan tidak sesuai.");
+            if (credential.LockedUntilUtc > DateTime.UtcNow)
+                throw Error(429, "MFA_RATE_LIMIT",
+                    "Terlalu banyak percobaan. Coba nanti.");
+            throw Error(401, "MFA_INVALID",
+                "Kode autentikator atau pemulihan tidak sesuai.");
         }
         credential.FailedAttempts = 0;
         credential.LockedUntilUtc = null;
