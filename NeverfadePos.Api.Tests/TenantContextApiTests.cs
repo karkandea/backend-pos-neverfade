@@ -143,6 +143,21 @@ public sealed class TenantContextApiTests
         var recovery = (await confirm.Content.ReadFromJsonAsync<MfaConfirmation>())!;
         Assert.Equal(8, recovery.RecoveryCodes.Count);
         Assert.Equal(8, recovery.RecoveryCodes.Distinct().Count());
+        Assert.All(recovery.RecoveryCodes, value =>
+        {
+            Assert.Equal(20, value.Length);
+            Assert.All(value, ch => Assert.True(Uri.IsHexDigit(ch)));
+        });
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var credential = await db.MfaCredentials.IgnoreQueryFilters()
+                .AsNoTracking().SingleAsync(x => x.UserId == originalLogin.User.Id);
+            Assert.DoesNotContain(recovery.RecoveryCodes[0], credential.RecoveryCodeHashesJson);
+            Assert.Equal(8,
+                System.Text.Json.JsonSerializer.Deserialize<List<string>>(
+                    credential.RecoveryCodeHashesJson)!.Count);
+        }
         Assert.Equal(HttpStatusCode.Unauthorized,
             (await owner.GetAsync("/api/auth/me")).StatusCode);
 

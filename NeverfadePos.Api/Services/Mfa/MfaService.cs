@@ -102,7 +102,7 @@ public sealed class MfaService(
         }
 
         var recoveryCodes = Enumerable.Range(0, 8)
-            .Select(_ => Convert.ToHexString(RandomNumberGenerator.GetBytes(8))).ToArray();
+            .Select(_ => Convert.ToHexString(RandomNumberGenerator.GetBytes(10))).ToArray();
         credential.EnabledAtUtc = now;
         credential.LastUsedStep = matched.Value;
         credential.FailedAttempts = 0;
@@ -154,7 +154,7 @@ public sealed class MfaService(
         else
         {
             var recovery = recoveryCode!.Trim().ToUpperInvariant();
-            if (recovery.Length == 16 && recovery.All(Uri.IsHexDigit))
+            if (recovery.Length == 20 && recovery.All(Uri.IsHexDigit))
             {
                 var hashes = JsonSerializer.Deserialize<List<string>>(
                     credential.RecoveryCodeHashesJson) ?? [];
