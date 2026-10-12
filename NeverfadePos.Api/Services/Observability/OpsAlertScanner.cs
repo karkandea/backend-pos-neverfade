@@ -16,19 +16,27 @@ public sealed class OpsAlertScanner(AppDbContext db, ITenantExecutionContext con
             throw new InvalidOperationException("Trusted tenant scope required.");
 
         var cutoff = now.AddMinutes(-5);
+        // Scan the newest *unalerted* anomalies. Limiting before excluding persisted
+        // alerts would starve all older anomalies when the first 500 were already sent.
         var payments = await db.Payments.AsNoTracking()
-            .Where(x => (x.Status == PaymentConstants.StatusCreating && x.CreatedAt < cutoff) ||
+            .Where(x => ((x.Status == PaymentConstants.StatusCreating && x.CreatedAt < cutoff) ||
                 (x.Status == PaymentConstants.StatusPending &&
-                 x.ExpiresAt.HasValue && x.ExpiresAt < now))
+                 x.ExpiresAt.HasValue && x.ExpiresAt < now)) &&
+                !db.OpsAlerts.Any(alert => alert.SourceKind == "payment_stalled" &&
+                    alert.SourceId == x.Id))
             .OrderByDescending(x => x.CreatedAt).Select(x => x.Id)
             .Take(500).ToListAsync(ct);
         var webhooks = await db.PaymentWebhookEvents.AsNoTracking()
-            .Where(x => x.ProcessingStatus != "processed")
+            .Where(x => x.ProcessingStatus != "processed" &&
+                !db.OpsAlerts.Any(alert => alert.SourceKind == "webhook_unprocessed" &&
+                    alert.SourceId == x.Id))
             .OrderByDescending(x => x.CreatedAt).Select(x => x.Id)
             .Take(500).ToListAsync(ct);
         var jobs = await db.Jobs.AsNoTracking()
             .Where(x => (x.State == "queued" || x.State == "running") &&
-                 x.UpdatedAt < cutoff)
+                 x.UpdatedAt < cutoff &&
+                 !db.OpsAlerts.Any(alert => alert.SourceKind == "job_stalled" &&
+                     alert.SourceId == x.Id))
             .OrderByDescending(x => x.CreatedAt).Select(x => x.Id)
             .Take(500).ToListAsync(ct);
 

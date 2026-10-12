@@ -229,6 +229,57 @@ public sealed class TenantContextApiTests
     }
 
     [Fact]
+    public async Task OpsAlertScanner_BackfillsUnalertedJobsBeyondFiveHundredWithoutDuplicates()
+    {
+        await using var factory = new TenantContextFactory();
+        var now = DateTime.UtcNow;
+        const int total = 502;
+        Guid tenantId;
+
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var db = setupScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            tenantId = await db.Tenants.AsNoTracking()
+                .Select(x => x.Id).SingleAsync();
+            using var trusted = setupScope.ServiceProvider
+                .GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "OPS_ALERT_BACKFILL_SEED");
+            db.Jobs.AddRange(Enumerable.Range(0, total).Select(_ => new Job
+            {
+                TenantId = tenantId,
+                Kind = "export",
+                State = "queued",
+                UpdatedAt = now.AddMinutes(-30)
+            }));
+            await db.SaveChangesAsync();
+
+            var scanner = setupScope.ServiceProvider.GetRequiredService<OpsAlertScanner>();
+            Assert.Equal(500, await scanner.ScanAsync(now));
+            Assert.Equal(500, await db.OpsAlerts.CountAsync());
+        }
+
+        // A new process/scope must pick the two oldest unalerted anomalies,
+        // rather than repeatedly inspecting the 500 most recent alerts.
+        await using (var restartScope = factory.Services.CreateAsyncScope())
+        {
+            var db = restartScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var trusted = restartScope.ServiceProvider
+                .GetRequiredService<NeverfadePos.Api.Auth.ITrustedTenantExecutionScope>()
+                .Begin(tenantId, "OPS_ALERT_BACKFILL_RESTART");
+            var scanner = restartScope.ServiceProvider.GetRequiredService<OpsAlertScanner>();
+
+            Assert.Equal(2, await scanner.ScanAsync(now));
+            Assert.Equal(0, await scanner.ScanAsync(now));
+            var alerts = await db.OpsAlerts.AsNoTracking()
+                .Where(x => x.SourceKind == "job_stalled")
+                .ToListAsync();
+            Assert.Equal(total, alerts.Count);
+            Assert.Equal(total, alerts.Select(x => x.SourceId).Distinct().Count());
+            Assert.Equal(total, alerts.Select(x => x.CorrelationId).Distinct().Count());
+        }
+    }
+
+    [Fact]
     public async Task OpsHealth_ReportsStalledJobWithCorrelationAndOwnerOnly()
     {
         await using var factory = new TenantContextFactory();
