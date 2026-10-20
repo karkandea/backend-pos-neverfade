@@ -42,4 +42,15 @@ public sealed class XenditPaymentWebhookDataDto
 
     [JsonPropertyName("failure_code")]
     public string? FailureCode { get; set; }
+
+    // Xendit Dashboard "Test and save" currently sends a legacy sample
+    // shape for Payments webhook settings. These fields are intentionally
+    // captured only so the controller can safely recognize and ACK that
+    // sample after callback-token verification. Real Payments API v3
+    // processing continues to use the strict fields above.
+    [JsonPropertyName("id")]
+    public string LegacyId { get; set; } = string.Empty;
+
+    [JsonPropertyName("amount")]
+    public decimal? LegacyAmount { get; set; }
 }
