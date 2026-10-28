@@ -21,4 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="../NeverfadePos.Api/NeverfadePos.Api.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 </Project>
