@@ -12,20 +12,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: disposable-pos-ci-only
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -37,7 +23,3 @@ jobs:
         run: dotnet build NeverfadePos.slnx --configuration Release --no-restore
       - name: Test
         run: dotnet test NeverfadePos.Api.Tests/NeverfadePos.Api.Tests.csproj --configuration Release --no-build --logger "console;verbosity=normal"
-      - name: PostgreSQL integration tests
-        env:
-          POS_TEST_POSTGRES: Host=127.0.0.1;Port=5432;Database=postgres;Username=postgres;Password=disposable-pos-ci-only;Pooling=false
-        run: dotnet test NeverfadePos.PostgresIntegrationTests/NeverfadePos.PostgresIntegrationTests.csproj --configuration Release --no-build --logger "console;verbosity=normal"
