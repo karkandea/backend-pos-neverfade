@@ -10,6 +10,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NeverfadePos.Api.Data;
 using NeverfadePos.Api.DTOs.Auth;
+using NeverfadePos.Api.DTOs.Karyawan;
+using NeverfadePos.Api.DTOs.Settings;
 using NeverfadePos.Api.DTOs.Tenant;
 using NeverfadePos.Api.DTOs.Outlet;
 using NeverfadePos.Api.DTOs.Laporan;
@@ -96,6 +98,80 @@ public sealed class TenantContextApiTests
         var response = await client.GetAsync("/api/tenant/context");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Settings_CanSaveAndClearOptionalEmail()
+    {
+        await using var factory = new TenantContextFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var settings = (await client.GetFromJsonAsync<SettingsDto>("/api/settings"))!;
+        settings.Alamat = "Alamat Retail QA";
+        settings.FooterStruk = "Terima kasih";
+        settings.Email = "retail@example.com";
+        settings.ShowTax = true;
+        settings.DefaultTax = 11;
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync("/api/settings", settings)).StatusCode);
+
+        settings.Email = "";
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync("/api/settings", settings)).StatusCode);
+        var saved = (await client.GetFromJsonAsync<SettingsDto>("/api/settings"))!;
+        Assert.Equal("", saved.Email);
+        Assert.Equal(settings.Alamat, saved.Alamat);
+        Assert.Equal(settings.FooterStruk, saved.FooterStruk);
+        Assert.True(saved.ShowTax);
+        Assert.Equal(11m, saved.DefaultTax);
+
+        settings.Email = "invalid-email";
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync("/api/settings", settings)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public async Task Employees_CanCreateAndUpdateWithOptionalEmail(string? email)
+    {
+        await using var factory = new TenantContextFactory();
+        using var client = await CreateOwnerClientAsync(factory);
+        var request = new
+        {
+            Nama = "Karyawan Retail QA",
+            Jabatan = "Kasir",
+            TanggalMasuk = new DateOnly(2026, 1, 1),
+            Status = "aktif",
+            Email = email
+        };
+
+        var created = await client.PostAsJsonAsync("/api/karyawan", request);
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var employee = (await created.Content.ReadFromJsonAsync<KaryawanDto>())!;
+        Assert.Equal("", employee.Email);
+        var url = $"/api/karyawan/{employee.Id}";
+
+        var updated = await client.PutAsJsonAsync(url, request with { Email = "cashier@example.com" });
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        Assert.Equal("cashier@example.com", (await updated.Content.ReadFromJsonAsync<KaryawanDto>())!.Email);
+
+        var cleared = await client.PutAsJsonAsync(url, request);
+        Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
+        Assert.Equal("", (await cleared.Content.ReadFromJsonAsync<KaryawanDto>())!.Email);
+
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await client.PostAsJsonAsync("/api/karyawan", request with { Email = "invalid-email" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await client.PutAsJsonAsync(url, request with { Email = "invalid-email" })).StatusCode);
+    }
+
+    private static async Task<HttpClient> CreateOwnerClientAsync(TenantContextFactory factory)
+    {
+        var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/api/auth/login",
+            new { username = "owner", password = "owner123" });
+        response.EnsureSuccessStatusCode();
+        var login = (await response.Content.ReadFromJsonAsync<LoginResponseDto>())!;
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", login.Token);
+        return client;
     }
 
     [Fact]
