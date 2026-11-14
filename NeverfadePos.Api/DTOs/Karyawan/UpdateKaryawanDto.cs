@@ -17,7 +17,11 @@ public sealed class UpdateKaryawanDto
 
     [EmailAddress]
     [MaxLength(200)]
-    public string Email { get; set; } = string.Empty;
+    public string? Email
+    {
+        get;
+        set => field = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
 
     [Range(0, double.MaxValue)]
     public decimal Gaji { get; set; }

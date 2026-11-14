@@ -53,7 +53,7 @@ public sealed class KaryawanService(
             Nama = request.Nama,
             Jabatan = request.Jabatan,
             Telepon = request.Telepon,
-            Email = request.Email,
+            Email = request.Email ?? string.Empty,
             Gaji = request.Gaji,
             TanggalMasuk = request.TanggalMasuk,
             Status = request.Status,
@@ -74,7 +74,7 @@ public sealed class KaryawanService(
         entity.Nama = request.Nama;
         entity.Jabatan = request.Jabatan;
         entity.Telepon = request.Telepon;
-        entity.Email = request.Email;
+        entity.Email = request.Email ?? string.Empty;
         entity.Gaji = request.Gaji;
         entity.TanggalMasuk = request.TanggalMasuk;
         entity.Status = request.Status;
