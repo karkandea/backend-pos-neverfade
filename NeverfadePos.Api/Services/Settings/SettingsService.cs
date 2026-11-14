@@ -31,7 +31,7 @@ public sealed class SettingsService(AppDbContext db)
         entity.NamaToko = request.NamaToko;
         entity.Alamat = request.Alamat;
         entity.Telepon = request.Telepon;
-        entity.Email = request.Email;
+        entity.Email = request.Email ?? string.Empty;
         entity.Website = request.Website;
         entity.HeaderStruk = request.HeaderStruk;
         entity.FooterStruk = request.FooterStruk;
